@@ -1,0 +1,39 @@
+services:
+  # Backend Web Service on Render
+  - type: web
+    name: shop-faq-bot-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "gunicorn backend.run:app"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shop-faq-db
+          property: connectionString
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: MAIL_FROM
+        value: support@shopfaqbot.com
+      - key: FRONTEND_URL
+        value: https://shop-faq-bot.vercel.app
+
+databases:
+  # PostgreSQL Database on Render (or connect Supabase via DATABASE_URL)
+  - name: shop-faq-db
+    databaseName: shopfaq
+    user: shopfaq_user
+    plan: free
+    region: oregon
+
