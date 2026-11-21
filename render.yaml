@@ -5,9 +5,12 @@ services:
     env: python
     region: oregon
     plan: free
-    buildCommand: "pip install -r backend/requirements.txt"
-    startCommand: "gunicorn backend.run:app"
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn --workers 2 --timeout 120 --bind 0.0.0.0:$PORT run:app"
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.7"
       - key: FLASK_ENV
         value: production
       - key: SECRET_KEY
@@ -21,7 +24,7 @@ services:
       - key: AI_PROVIDER
         value: gemini
       - key: GEMINI_MODEL
-        value: gemini-3.8-flash
+        value: gemini-3.5-flash-lite
       - key: GEMINI_API_KEY
         sync: false
       - key: EMAIL_PROVIDER
