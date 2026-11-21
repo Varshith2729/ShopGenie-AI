@@ -42,7 +42,7 @@ const AdminLayout = () => {
     { name: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
     { name: 'Knowledge Base', path: '/admin/knowledge', icon: BookOpen },
     { name: 'Customer Questions', path: '/admin/questions', icon: HelpCircle },
-    { name: 'Rate Answers', path: '/admin/rate-answers', icon: ThumbsUp },
+    { name: 'Customer Feedback', path: '/admin/rate-answers', icon: ThumbsUp },
     { name: 'Shop Settings', path: '/admin/settings', icon: Settings },
   ];
 
@@ -57,7 +57,7 @@ const AdminLayout = () => {
               <Bot className="w-5 h-5" />
             </div>
             <div>
-              <span className="font-bold text-slate-900 text-base tracking-tight">Shop FAQ Bot</span>
+              <span className="font-bold text-slate-900 text-base tracking-tight">ShopGenie AI</span>
               <span className="block text-[10px] uppercase tracking-wider text-blue-600 font-semibold">Tenant Admin</span>
             </div>
           </Link>

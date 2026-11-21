@@ -29,9 +29,15 @@ class Config:
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=7)
     
-    # AI Provider Configuration (gemini or claude)
+    # AI Provider & Model Configuration (gemini or claude)
     AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").lower()
+    # Verified Current Models (verified November 2026):
+    # Google Gemini: gemini-3.8-flash (official low-latency flagship), gemini-3.5-flash-lite
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", 20))
+    # Anthropic Claude: claude-haiku-5-5 (official fast support model), claude-sonnet-5-5
+    CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-haiku-5-5").strip()
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
     
     # Email Configuration

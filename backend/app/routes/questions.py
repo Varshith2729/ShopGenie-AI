@@ -59,26 +59,28 @@ def answer_question(question_id):
     if not customer:
         return error_response("Associated customer record not found.", 404)
 
-    # 1. Save owner response in database FIRST
+    # 1. Automatic Knowledge Base Learning & Response Persistence
+    # Use strict database transaction: knowledge entry is verified and flushed FIRST.
+    # Pending question status is updated to 'answered' ONLY after the knowledge base entry is safely persisted.
     try:
         is_already_sent = (question.email_status == "sent")
-        question.owner_answer = owner_answer
-        question.status = "answered"
-        question.answered_at = datetime.now(timezone.utc)
+        clean_question = question.question.strip()
+        kb_title = f"FAQ: {clean_question[:70]}"
+        kb_content = f"Question: {clean_question}\nAnswer: {owner_answer}"
 
-        # 2. Add or update Knowledge Base entry
-        kb_title = f"FAQ: {question.question[:70]}"
-        kb_content = f"Question: {question.question}\nAnswer: {owner_answer}"
-        
-        # Check if KB entry already exists for this question
-        existing_kb = KnowledgeBase.query.filter_by(
-            shop_id=shop_id, 
-            source_type="pending_answered",
-            title=kb_title
+        # Prevent duplicate knowledge entries for this tenant:
+        # Check by shop_id and title or matching Question content
+        existing_kb = KnowledgeBase.query.filter_by(shop_id=shop_id).filter(
+            (KnowledgeBase.title == kb_title) |
+            (KnowledgeBase.content.startswith(f"Question: {clean_question}\n"))
         ).first()
 
         if existing_kb:
+            existing_kb.title = kb_title
             existing_kb.content = kb_content
+            existing_kb.category = "Customer FAQ"
+            existing_kb.source_type = "pending_answered"
+            existing_kb.updated_at = datetime.now(timezone.utc)
             kb_entry = existing_kb
         else:
             kb_entry = KnowledgeBase(
@@ -90,7 +92,15 @@ def answer_question(question_id):
             )
             db.session.add(kb_entry)
 
-        # 3. Append to conversation thread if active
+        # Flush to ensure Knowledge Base entry is valid and staged in the transaction
+        db.session.flush()
+
+        # Update the Pending question status ONLY AFTER the knowledge entry is safely persisted
+        question.owner_answer = owner_answer
+        question.status = "answered"
+        question.answered_at = datetime.now(timezone.utc)
+
+        # Append to conversation thread if active
         if question.conversation_id:
             owner_msg = Message(
                 shop_id=shop_id,
@@ -100,21 +110,21 @@ def answer_question(question_id):
             )
             db.session.add(owner_msg)
 
-        # 4. Activity Log
+        # Record activity log
         log = ActivityLog(
             shop_id=shop_id,
             user_id=g.current_user.id,
             action="question_answered",
-            details=f"Answered customer question #{question.id} for {customer.email}"
+            details=f"Answered customer question #{question.id} and saved to knowledge base for {customer.email}"
         )
         db.session.add(log)
         
-        # Commit response data immediately before attempting email
+        # Commit the transaction atomically
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Failed to save owner response: {e}")
-        return error_response(f"Database error saving response: {str(e)}", 500)
+        logger.error(f"Failed to atomically persist owner response and knowledge entry: {e}")
+        return error_response(f"Database error saving response and knowledge entry: {str(e)}", 500)
 
     # 4. Duplicate Email Prevention
     if is_already_sent and not force_resend:

@@ -47,8 +47,8 @@ def create_app(config_class=Config):
     def health_check():
         return jsonify({
             "status": "healthy",
-            "service": "Shop FAQ Bot API",
-            "version": "1.0.0"
+            "service": "ShopGenie AI API",
+            "version": "2.0.0"
         }), 200
         
     # Global Error Handlers

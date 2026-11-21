@@ -321,7 +321,7 @@ def test_14_owner_can_answer_pending(client, auth_headers):
     assert data["question"]["owner_answer"] == "Yes, we provide complimentary gift wrapping on all orders!"
 
 # ----------------------------------------------------------------------
-# 15. Email is triggered after an answer.
+# 15. Email is triggered after an answer (Strict verification).
 # ----------------------------------------------------------------------
 def test_15_email_triggered_after_answer(client, auth_headers):
     sess = client.post("/api/public/shop/test-shop/session", json={
@@ -336,11 +336,17 @@ def test_15_email_triggered_after_answer(client, auth_headers):
     ans_res = client.post(f"/api/questions/{q_id}/answer", json={
         "answer": "Yes, 10% off on 10 items or more."
     }, headers=auth_headers)
-    # email_status should be 'sent' or 'failed' based on service response
-    assert ans_res.get_json()["data"]["email_status"] in ("sent", "failed")
+
+    # Strict delivery submission check: must be strictly 'sent', never accepting 'failed'
+    assert ans_res.status_code == 200
+    data = ans_res.get_json()["data"]
+    assert data["email_status"] == "sent"
+    assert data["email_error"] is None
+    assert data["question"]["owner_answer"] == "Yes, 10% off on 10 items or more."
+    assert data["question"]["status"] == "answered"
 
 # ----------------------------------------------------------------------
-# 16. Failed emails can be retried.
+# 16. Failed emails can be retried (Strict verification).
 # ----------------------------------------------------------------------
 def test_16_failed_email_retry(client, auth_headers, app):
     sess = client.post("/api/public/shop/test-shop/session", json={
@@ -352,18 +358,25 @@ def test_16_failed_email_retry(client, auth_headers, app):
     }, headers={"X-Customer-Session": sess})
     q_id = chat.get_json()["data"]["question_id"]
     
-    client.post(f"/api/questions/{q_id}/answer", json={
+    ans_res = client.post(f"/api/questions/{q_id}/answer", json={
         "answer": "Currently we accept credit cards, debit cards, and cash."
     }, headers=auth_headers)
+    assert ans_res.status_code == 200
     
-    # Mark email as failed
+    # Simulate a prior failed delivery in the database
     with app.app_context():
         q = db.session.get(CustomerQuestion, q_id)
         q.email_status = "failed"
+        q.email_error = "Connection dropped during initial dispatch"
         db.session.commit()
         
+    # Retry must strictly succeed and return 200 with status 'sent'
     retry_res = client.post(f"/api/questions/{q_id}/retry-email", headers=auth_headers)
-    assert retry_res.status_code in (200, 502)
+    assert retry_res.status_code == 200
+    retry_data = retry_res.get_json()["data"]
+    assert retry_data["email_status"] == "sent"
+    assert retry_data["email_error"] is None
+    assert retry_data["email_retries"] >= 1
 
 # ----------------------------------------------------------------------
 # 17. Good feedback is saved.

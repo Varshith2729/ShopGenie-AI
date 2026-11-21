@@ -26,9 +26,9 @@ const LandingPage = () => {
               <Bot className="w-6 h-6" />
             </div>
             <div>
-              <span className="font-extrabold text-slate-900 text-lg tracking-tight">Shop FAQ Bot</span>
+              <span className="font-extrabold text-slate-900 text-lg tracking-tight">ShopGenie AI</span>
               <span className="hidden sm:inline-block ml-2 px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 rounded-full border border-blue-200">
-                SaaS v1.0
+                SaaS v2.0
               </span>
             </div>
           </Link>

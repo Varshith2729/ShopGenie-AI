@@ -9,63 +9,61 @@ feedback_bp = Blueprint("feedback", __name__)
 @jwt_required
 def list_feedback_items():
     """
-    List AI answers and customer feedback for the shop owner to review.
-    Supports filtering by rating ('good', 'bad') and search by customer question.
-    Computes total good answers, total bad answers, and good answer percentage.
+    List shop owner reply feedback.
+    AI answer feedback has been removed; only shop owner reply feedback is retained.
+    """
+    return list_owner_reply_feedback()
+
+
+@feedback_bp.route("/owner-replies", methods=["GET"])
+@jwt_required
+def list_owner_reply_feedback():
+    """
+    List shop owner replies that have received customer feedback (Good / Bad).
+    Includes helpfulness metrics, customer context, and search/filtering.
     """
     shop_id = g.current_shop.id
     type_filter = request.args.get("type", "").strip().lower()
     search_query = request.args.get("q", "").strip().lower()
 
-    # Calculate summary metrics for the shop
-    total_good = AnswerFeedback.query.filter_by(shop_id=shop_id, feedback_type="good").count()
-    total_bad = AnswerFeedback.query.filter_by(shop_id=shop_id, feedback_type="bad").count()
+    # Calculate summary metrics for owner replies
+    total_good = AnswerFeedback.query.filter_by(shop_id=shop_id, target_type="owner_reply", feedback_type="good").count()
+    total_bad = AnswerFeedback.query.filter_by(shop_id=shop_id, target_type="owner_reply", feedback_type="bad").count()
     total_rated = total_good + total_bad
-    good_percentage = round((total_good / total_rated) * 100, 1) if total_rated > 0 else 0.0
+    helpfulness_percentage = round((total_good / total_rated) * 100, 1) if total_rated > 0 else 0.0
 
-    # Query customer questions that have an AI answer
-    query = CustomerQuestion.query.filter_by(shop_id=shop_id)\
-        .filter(CustomerQuestion.ai_answer.isnot(None))
+    # Query owner reply feedbacks
+    query = AnswerFeedback.query.filter_by(shop_id=shop_id, target_type="owner_reply")
+    if type_filter in ("good", "bad"):
+        query = query.filter_by(feedback_type=type_filter)
 
-    if search_query:
-        query = query.filter(CustomerQuestion.question.ilike(f"%{search_query}%"))
+    feedbacks = query.order_by(AnswerFeedback.created_at.desc()).all()
 
-    questions = query.order_by(CustomerQuestion.created_at.desc()).all()
-
-    # Convert to items, optionally filtering by feedback_type
     items = []
-    for q in questions:
-        q_dict = q.to_dict()
-        fb_list = q_dict.get("feedback") or []
-        primary_fb = fb_list[0] if fb_list else None
-        rating = primary_fb.get("feedback_type") if primary_fb else "unrated"
+    for fb in feedbacks:
+        fb_dict = fb.to_dict()
+        if search_query:
+            q_text = (fb_dict.get("question") or "").lower()
+            reply_text = (fb_dict.get("owner_reply") or "").lower()
+            cust_email = (fb_dict.get("customer_email") or "").lower()
+            cust_name = (fb_dict.get("customer_name") or "").lower()
+            if not any(search_query in field for field in (q_text, reply_text, cust_email, cust_name)):
+                continue
 
-        if type_filter and rating != type_filter:
-            continue
-
-        item_data = {
-            "id": q.id,
-            "question_id": q.id,
-            "customer_name": q_dict.get("customer_name", "Anonymous"),
-            "customer_email": q_dict.get("customer_email", "N/A"),
-            "question": q.question,
-            "ai_answer": q.ai_answer,
-            "rating": rating,
-            "feedback_type": rating,
-            "feedback_comment": primary_fb.get("reason") if primary_fb else None,
-            "correct_answer": primary_fb.get("correct_answer") if primary_fb else None,
-            "created_at": primary_fb.get("created_at") if primary_fb else q_dict.get("created_at"),
-            "has_feedback": bool(primary_fb),
-            "feedback": fb_list
-        }
-        items.append(item_data)
+        items.append(fb_dict)
 
     return success_response({
         "items": items,
         "total": len(items),
         "total_good": total_good,
         "total_bad": total_bad,
-        "good_percentage": good_percentage
+        "total_rated": total_rated,
+        "helpfulness_percentage": helpfulness_percentage,
+        "good_percentage": helpfulness_percentage,
+        "good_owner_replies": total_good,
+        "bad_owner_replies": total_bad,
+        "total_owner_replies_rated": total_rated,
+        "owner_helpfulness_percentage": helpfulness_percentage
     })
 
 @feedback_bp.route("/<int:question_id>/good", methods=["POST"])

@@ -78,6 +78,7 @@ export const questionsApi = {
 // Rate Answers / Feedback Service
 export const feedbackApi = {
   list: (params) => api.get('/feedback', { params }),
+  listOwnerReplies: (params) => api.get('/feedback/owner-replies', { params }),
   submitGood: (id) => api.post(`/feedback/${id}/good`),
   submitBad: (id, reason, correctAnswer) => api.post(`/feedback/${id}/bad`, {
     reason,
@@ -102,8 +103,80 @@ export const customerApi = {
     { message, session_token: token },
     { headers: { 'X-Customer-Session': token } }
   ),
-  submitFeedback: (slug, token, payload) => api.post(
-    `/public/shop/${slug}/feedback`,
+  sendChatStream: async (slug, token, message, { onStart, onChunk, onDone, onError }, signal) => {
+    const url = `${BASE_URL}/public/shop/${slug}/chat/stream`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Customer-Session': token,
+      },
+      body: JSON.stringify({ message, session_token: token }),
+      signal,
+    });
+
+    if (!response.ok) {
+      let errData;
+      try {
+        errData = await response.json();
+      } catch (e) {
+        errData = { message: `Request failed with status ${response.status}` };
+      }
+      const err = new Error(errData.message || 'Stream connection failed');
+      err.response = { status: response.status, data: errData };
+      throw err;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        let currentEvent = 'message';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            currentEvent = 'message';
+            continue;
+          }
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              const data = JSON.parse(dataStr);
+              if (currentEvent === 'start' && onStart) {
+                onStart(data);
+              } else if (currentEvent === 'chunk' && onChunk) {
+                onChunk(data.chunk);
+              } else if (currentEvent === 'done' && onDone) {
+                onDone(data);
+              } else if (currentEvent === 'error' && onError) {
+                onError(data);
+              } else if (currentEvent === 'message') {
+                if (data.chunk && onChunk) onChunk(data.chunk);
+                if (data.answer && onDone) onDone(data);
+              }
+            } catch (e) {
+              console.error("Failed to parse SSE JSON:", e, dataStr);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  },
+  submitOwnerFeedback: (slug, token, payload) => api.post(
+    `/public/shop/${slug}/owner-feedback`,
     payload,
     { headers: { 'X-Customer-Session': token } }
   ),

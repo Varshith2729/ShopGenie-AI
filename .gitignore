@@ -7,6 +7,8 @@ __pycache__/
 backend/env/
 backend/venv/
 backend/shop_faq.db
+*.db
+*.db-journal
 *.sqlite3
 instance/
 .pytest_cache/

@@ -100,28 +100,33 @@ def test_feedback_03_dashboard_counters_update_correctly(client):
         "first_name": "Tony", "last_name": "Stark", "email": "tony@stark.com"
     }).get_json()["data"]["session_token"]
 
-    # Ask 2 questions
-    q1 = client.post("/api/public/shop/shop-fb-3/chat", json={
+    # Customer asks question
+    client.post("/api/public/shop/shop-fb-3/chat", json={
         "message": "Do you sell laptops?"
-    }, headers={"X-Customer-Session": sess}).get_json()["data"]["question_id"]
-
-    q2 = client.post("/api/public/shop/shop-fb-3/chat", json={
-        "message": "Do you sell smartphones?"
-    }, headers={"X-Customer-Session": sess}).get_json()["data"]["question_id"]
-
-    # Q1 -> Good, Q2 -> Bad
-    client.post("/api/public/shop/shop-fb-3/feedback", json={
-        "question_id": q1, "feedback_type": "good"
     }, headers={"X-Customer-Session": sess})
 
-    client.post("/api/public/shop/shop-fb-3/feedback", json={
-        "question_id": q2, "feedback_type": "bad", "comment": "Need brand details"
+    # Owner sends two replies in the conversation
+    conv = Conversation.query.filter_by(shop_id=shop["id"]).first()
+    msg1 = Message(shop_id=shop["id"], conversation_id=conv.id, sender_type="owner", message_content="Yes, we carry Dell laptops.")
+    msg2 = Message(shop_id=shop["id"], conversation_id=conv.id, sender_type="owner", message_content="Also Apple MacBook Air.")
+    db.session.add_all([msg1, msg2])
+    db.session.commit()
+
+    # Msg1 -> Good, Msg2 -> Bad
+    client.post("/api/public/shop/shop-fb-3/owner-feedback", json={
+        "message_id": msg1.id, "feedback_type": "good"
+    }, headers={"X-Customer-Session": sess})
+
+    client.post("/api/public/shop/shop-fb-3/owner-feedback", json={
+        "message_id": msg2.id, "feedback_type": "bad"
     }, headers={"X-Customer-Session": sess})
 
     # Verify dashboard stats
     stats_res = client.get("/api/dashboard/stats", headers=headers)
     assert stats_res.status_code == 200
     stats = stats_res.get_json()["data"]["stats"]
+    assert stats["good_owner_replies"] == 1
+    assert stats["bad_owner_replies"] == 1
     assert stats["good_answers"] == 1
     assert stats["bad_answers"] == 1
 
@@ -129,7 +134,7 @@ def test_feedback_03_dashboard_counters_update_correctly(client):
     fb_list = client.get("/api/feedback", headers=headers).get_json()["data"]
     assert fb_list["total_good"] == 1
     assert fb_list["total_bad"] == 1
-    assert fb_list["good_percentage"] == 50.0
+    assert fb_list["helpfulness_percentage"] == 50.0
 
 def test_feedback_04_feedback_duplicate_or_update(client, app):
     headers, shop = _setup_owner_and_shop(client, "shop-fb-4", "owner_fb4@test.com")
@@ -221,6 +226,196 @@ def test_feedback_06_tenant_isolation_on_feedback(client):
     }, headers={"X-Customer-Session": sess_b})
 
     assert cross_res.status_code == 404
+
+def test_feedback_07_question_retry_after_correction_retrieves_approved_answer(client, app):
+    """
+    Critical Fix 3 Regression Test:
+    1. Create Shop A with initial knowledge base.
+    2. Customer asks a question on Shop A.
+    3. Initial answer is incomplete/bad.
+    4. Customer/Owner identifies bad answer.
+    5. Owner saves approved correction.
+    6. Correction is persisted in Knowledge Base (source_type='feedback_correction').
+    7. Customer asks exactly the same question again.
+    8. AI retrieves corrected knowledge and returns the approved answer.
+    9. Old knowledge does not override the correction.
+    10. Tenant isolation: Shop B asking the same question never gets Shop A's correction.
+    """
+    # 1. Setup Shop A
+    headers_a, shop_a = _setup_owner_and_shop(client, "shop-retry-a", "owner_retry_a@test.com")
+
+    # Initial knowledge base entry
+    client.post("/api/knowledge", json={
+        "title": "Store Return Policy",
+        "content": "You can return items within 7 days with original receipt.",
+        "category": "Policy"
+    }, headers=headers_a)
+
+    # 2. Setup Shop B (for cross-tenant isolation verification)
+    headers_b, shop_b = _setup_owner_and_shop(client, "shop-retry-b", "owner_retry_b@test.com")
+
+    # Customer establishes session on Shop A
+    sess_a = client.post("/api/public/shop/shop-retry-a/session", json={
+        "first_name": "Diana", "last_name": "Prince", "email": "diana@test.com"
+    }).get_json()["data"]["session_token"]
+
+    question_text = "Can I return items without receipt if they are unopened?"
+
+    # Customer asks initial question
+    chat_res1 = client.post("/api/public/shop/shop-retry-a/chat", json={
+        "message": question_text
+    }, headers={"X-Customer-Session": sess_a})
+    assert chat_res1.status_code == 200
+    q1_data = chat_res1.get_json()["data"]
+    q1_id = q1_data["question_id"]
+
+    # Customer marks answer as bad
+    client.post("/api/public/shop/shop-retry-a/feedback", json={
+        "question_id": q1_id,
+        "feedback_type": "bad",
+        "comment": "Does not explain unopened return exceptions without receipt"
+    }, headers={"X-Customer-Session": sess_a})
+
+    # Owner reviews bad feedback and submits verified correction
+    approved_correction = "Yes, unopened items in original sealed packaging can be returned within 14 days without a receipt for store credit."
+    corr_res = client.post(f"/api/feedback/{q1_id}/bad", json={
+        "reason": "Clarified policy for sealed unopened items",
+        "correct_answer": approved_correction
+    }, headers=headers_a)
+    assert corr_res.status_code == 200
+
+    # Verify correction is persisted in DB with source_type='feedback_correction'
+    with app.app_context():
+        kb_entry = KnowledgeBase.query.filter_by(
+            shop_id=shop_a["id"],
+            source_type="feedback_correction"
+        ).first()
+        assert kb_entry is not None
+        assert "unopened items in original sealed packaging" in kb_entry.content
+        assert kb_entry.shop_id == shop_a["id"]
+
+    # Customer asks EXACT same question again on Shop A
+    chat_res2 = client.post("/api/public/shop/shop-retry-a/chat", json={
+        "message": question_text
+    }, headers={"X-Customer-Session": sess_a})
+    assert chat_res2.status_code == 200
+    data2 = chat_res2.get_json()["data"]
+
+    # Verify AI retrieves and provides the approved correction
+    assert data2["can_answer"] is True
+    assert data2["status"] == "answered"
+    answer2 = data2["answer"]
+    assert "unopened" in answer2.lower()
+    assert ("store credit" in answer2.lower() or "14 days" in answer2.lower())
+    # Verify internal prompt/metadata headers did not leak
+    assert "[Entry" not in answer2
+    assert "Correction Notes:" not in answer2
+
+    # Cross-tenant isolation verification: Customer on Shop B asks the exact same question
+    sess_b = client.post("/api/public/shop/shop-retry-b/session", json={
+        "first_name": "Arthur", "last_name": "Curry", "email": "arthur@test.com"
+    }).get_json()["data"]["session_token"]
+
+    chat_res_b = client.post("/api/public/shop/shop-retry-b/chat", json={
+        "message": question_text
+    }, headers={"X-Customer-Session": sess_b})
+    assert chat_res_b.status_code == 200
+    data_b = chat_res_b.get_json()["data"]
+
+    # Shop B must NOT have access to Shop A's correction!
+    assert data_b["can_answer"] is False
+    assert data_b["status"] == "pending"
+    assert "unopened items in original sealed packaging" not in data_b["answer"]
+
+def test_automatic_knowledge_learning_from_pending_answers(client, app):
+    """
+    Critical Fix 1 Acceptance Test:
+    Shop A receives an unknown question: 'Do you provide home delivery?'
+    The question appears in Pending.
+    The owner answers: 'Yes, we provide free home delivery within 5 kilometres.'
+    Expected:
+    - The answer is saved.
+    - The original question and approved answer become knowledge base content.
+    - The Pending item is marked as answered.
+    - The same customer question is asked again.
+    - AI retrieves and provides the approved answer.
+    - Shop B cannot access this knowledge.
+    """
+    # 1. Setup Shop A & Shop B
+    headers_a, shop_a = _setup_owner_and_shop(client, "shop-learn-a", "owner_learn_a@test.com")
+    headers_b, shop_b = _setup_owner_and_shop(client, "shop-learn-b", "owner_learn_b@test.com")
+
+    sess_a = client.post("/api/public/shop/shop-learn-a/session", json={
+        "first_name": "Clark", "last_name": "Kent", "email": "clark@test.com"
+    }).get_json()["data"]["session_token"]
+
+    delivery_question = "Do you provide home delivery?"
+
+    # Customer asks unknown question
+    chat1 = client.post("/api/public/shop/shop-learn-a/chat", json={
+        "message": delivery_question
+    }, headers={"X-Customer-Session": sess_a})
+    assert chat1.status_code == 200
+    q_data = chat1.get_json()["data"]
+    assert q_data["can_answer"] is False
+    assert q_data["status"] == "pending"
+    q_id = q_data["question_id"]
+
+    # Owner checks Pending questions
+    pending_list = client.get("/api/questions?status=pending", headers=headers_a).get_json()["data"]["questions"]
+    assert any(q["id"] == q_id for q in pending_list)
+
+    # Owner answers the Pending question
+    approved_delivery_answer = "Yes, we provide free home delivery within 5 kilometres."
+    ans_res = client.post(f"/api/questions/{q_id}/answer", json={
+        "answer": approved_delivery_answer
+    }, headers=headers_a)
+    assert ans_res.status_code == 200
+
+    # Verify:
+    # 1) Answer is saved & marked answered
+    with app.app_context():
+        q_record = db.session.get(CustomerQuestion, q_id)
+        assert q_record.status == "answered"
+        assert q_record.owner_answer == approved_delivery_answer
+
+        # 2) Knowledge base entry is created with correct metadata & tenant
+        kb_entry = KnowledgeBase.query.filter_by(
+            shop_id=shop_a["id"],
+            source_type="pending_answered"
+        ).first()
+        assert kb_entry is not None
+        assert "5 kilometres" in kb_entry.content
+        assert kb_entry.shop_id == shop_a["id"]
+
+    # 3) Customer asks the exact same question again
+    chat2 = client.post("/api/public/shop/shop-learn-a/chat", json={
+        "message": delivery_question
+    }, headers={"X-Customer-Session": sess_a})
+    assert chat2.status_code == 200
+    data2 = chat2.get_json()["data"]
+
+    # AI retrieves and provides approved answer
+    assert data2["can_answer"] is True
+    assert data2["status"] == "answered"
+    assert "home delivery" in data2["answer"].lower()
+    assert "5 kilometres" in data2["answer"].lower()
+
+    # 4) Cross-tenant check: Shop B customer asks the same question
+    sess_b = client.post("/api/public/shop/shop-learn-b/session", json={
+        "first_name": "Bruce", "last_name": "Wayne", "email": "bruce@test.com"
+    }).get_json()["data"]["session_token"]
+
+    chat_b = client.post("/api/public/shop/shop-learn-b/chat", json={
+        "message": delivery_question
+    }, headers={"X-Customer-Session": sess_b})
+    assert chat_b.status_code == 200
+    data_b = chat_b.get_json()["data"]
+
+    # Shop B must NOT have access to Shop A's learned answer!
+    assert data_b["can_answer"] is False
+    assert data_b["status"] == "pending"
+    assert "5 kilometres" not in data_b["answer"]
 
 # ----------------------------------------------------------------------
 # FEATURE 1: TWO-WAY EMAIL COMMUNICATION TESTS

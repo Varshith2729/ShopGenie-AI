@@ -1,96 +1,96 @@
-# Shop FAQ Bot — Multi-Tenant AI-Powered Customer Support SaaS
+# ShopGenie AI — Multi-Tenant AI Customer Support & Knowledge Management Platform (SaaS)
 
-[![Tests](https://img.shields.io/badge/tests-58%20passed-emerald)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-61%20passed%2C%201%20skipped-emerald)](backend/tests/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite%20%2B%20Tailwind-61dafb)](frontend)
 [![Backend](https://img.shields.io/badge/Backend-Python%20%2B%20Flask%20%2B%20SQLAlchemy-3776ab)](backend)
 [![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2F%20Supabase-3ecf8e)](docs/database-schema.md)
-[![AI Engine](https://img.shields.io/badge/AI-Google%20Gemini%20%2F%20Claude-4285f4)](backend/app/services/ai_service.py)
+[![AI Engine](https://img.shields.io/badge/AI-Google%20Gemini%203.8%20Flash%20%2F%20Claude%20Haiku%205.5-4285f4)](backend/app/services/ai_service.py)
 
 ---
 
 ## 1. Project Overview
 
-**Shop FAQ Bot** is a production-ready, multi-tenant SaaS application that enables retail and local shop owners to automate customer inquiries 24/7 using tailored Artificial Intelligence. 
+**ShopGenie AI** is a production-ready, multi-tenant SaaS customer support and knowledge management platform that enables retail and local shop owners to automate customer inquiries 24/7 with strict tenant isolation, zero hallucination, automated email escalation, and continuous self-learning.
 
-Every shop owner registers their business, configures their knowledge base (hours, brands, returns, inventory, policies), and receives an immediate **unique public chatbot URL** (e.g. `http://localhost:5173/s/ravi-mobiles`). 
+Every shop owner registers their business, configures their knowledge base (opening hours, brands, inventory, policies, services), and receives an immediate **unique public customer chat URL** (e.g. `http://localhost:5173/s/ravi-mobiles`).
 
-Customers visit the link, enter their contact info once (persisted securely for 36 hours), and receive instant, factual answers derived exclusively from that shop's knowledge base. If the AI cannot answer confidently, it creates a pending inquiry ticket for the owner, who can respond via the dashboard to automatically notify the customer by email and update the AI's knowledge base for future shoppers.
-
----
-
-## 2. Problem Statement
-
-Small-to-medium retail shops, electronics stores, boutiques, and pharmacies receive dozens of repetitive inquiries daily via phone calls, WhatsApp messages, and Instagram DMs regarding:
-- *What time do you open or close today?*
-- *Do you accept returns, and within how many days?*
-- *Do you have iPhone 15 or OnePlus 12 in stock?*
-- *Do you offer home delivery or gift wrapping?*
-
-When staff are busy assisting in-store shoppers, digital inquiries go unanswered for hours, causing lost sales. Standard chatbots often hallucinate prices or invent policies. **Shop FAQ Bot solves this by combining strict tenant isolation, verified knowledge retrieval, and an automated owner escalation loop with email dispatch.**
+Customers visit the link, enter their contact info once (persisted securely for 36 hours), and receive instant, factual answers derived exclusively from that shop's knowledge base. If the AI cannot answer confidently, it creates a pending inquiry ticket for the owner. When the owner answers via their admin dashboard:
+1. The customer receives an immediate formatted email notification.
+2. The customer can reply directly to the email, with replies automatically ingested into the owner's dashboard conversation thread via Gmail IMAP.
+3. The owner's approved answer is **automatically learned into the shop's knowledge base**, making future customer inquiries about that topic immediately answerable by the AI.
 
 ---
 
-## 3. Features
+## 2. Four Critical Mentor Enhancements
 
-- **Multi-Tenant Architecture**: Complete logical and data separation for unlimited shop owners. Zero cross-shop data leakage.
-- **Unique Public Chatbot URLs**: Custom vanity slugs (e.g. `/s/ravi-mobiles`, `/s/sri-fashion`) with real-time clipboard copy and live preview.
-- **36-Hour Customer Session Memory**: Customers provide name and email once. Sessions persist across browser reloads for 36 hours.
-- **Strict Factual AI Retrieval Engine**:
-  - Grounded exclusively in the tenant's knowledge base.
-  - Zero hallucination guardrails via system prompts and relevance thresholds.
-  - If information is missing, returns the exact required fallback: *"Thank you! The shop owner will reply to you soon by email."* and creates a pending ticket.
-- **Pending Questions & Automated Two-Way Email Communication**:
-  - Shop owners answer unresolved inquiries directly in their admin dashboard.
-  - Customers receive an immediate formatted email with clean headers (`In-Reply-To`, `References`, and `[Ref: #SG-{id}]`).
-  - **Two-Way Reply Ingestion**: When customers click Reply in Gmail/email, their response is automatically ingested via **Gmail IMAP synchronization** or **Inbound Webhook** and attached to the conversation thread.
-  - Shop owners can review the back-and-forth conversation history and send follow-up replies directly from the dashboard.
-- **Customer Answer Feedback in Public Chatbot**:
-  - Customers can rate AI responses as 👍 Good Answer or 👎 Bad Answer inline directly in the chat widget.
-  - Bad answer feedback allows customers to provide an optional explanation.
-  - The Owner Dashboard includes a dedicated **Rate Answers** portal with KPI counters, filter tabs, and a one-click **"Correct Answer"** modal to save verified corrections directly into the shop's Knowledge Base.
-- **Natural, Professional Chatbot Display**:
-  - Internal retrieval metadata, document headers (e.g., `[Entry 1 - Customer FAQ]`), and prompt formatting tags are strictly stripped before reaching the customer.
-  - Chatbot responds in polite, complete, natural sentences.
-- **Modern SaaS Admin Dashboard**: Overview metrics, knowledge management, question tables, activity logs, and mobile-responsive layout.
+### 1. Automatic Knowledge Base Learning from Pending Answers
+- **Atomic Database Transaction**: When an owner submits an answer to a Pending question, the Knowledge Base entry (`source_type="pending_answered"`) is persisted and flushed before the question status transitions to `"answered"`.
+- **Tenant Association**: The knowledge entry is strictly associated with `shop_id`. Shop A's answers are NEVER added to or accessible by Shop B.
+- **Duplicate Prevention**: Intelligently identifies existing FAQ entries by title and question content, updating timestamps and content rather than creating redundant duplicates.
+- **Immediate AI Searchability**: Owner-approved answers and corrections receive priority scoring bonuses in the retrieval engine, superseding older general entries.
+- **Untrusted Guess Prevention**: Only owner-approved answers become trusted knowledge base entries.
+
+### 2. Strict Real Email Delivery Testing
+- **Strict Test Assertions**: Tests 15 and 16 no longer accept ambiguous `"sent"` or `"failed"`. A successful email test strictly requires provider confirmation (`status == "sent"` and HTTP 200). Delivery failures must strictly cause test failure.
+- **Separation of Mocks and Live SMTP**: Unit tests use controlled mocks to verify error states, headers, and payload structures. Actual SMTP integration tests are segregated and triggered via `RUN_REAL_EMAIL_TESTS=true`.
+- **Full SMTP Handshake & Logging**: Implements standard SMTP `EHLO -> STARTTLS -> EHLO -> login -> send_message` with SSL contexts, timeout handling, and diagnostic logging while strictly redacting passwords and keys.
+- **Submission Distinction**: Accurately clarifies that SMTP acceptance confirms successful transport submission to the upstream mail server, avoiding false claims of customer mailbox receipt.
+
+### 3. Automated Question Retry After Correction Regression Test
+- Dedicated end-to-end regression test (`test_feedback_07_question_retry_after_correction_retrieves_approved_answer`):
+  1. Creates Shop A with an initial return policy ("7 days with receipt").
+  2. Customer asks an edge-case question ("Can I return items without receipt if they are unopened?").
+  3. Bad answer feedback is submitted with customer notes.
+  4. Owner submits approved correction ("Unopened sealed items can be returned within 14 days without receipt for store credit").
+  5. Correction is saved to Knowledge Base (`source_type="feedback_correction"`).
+  6. Customer asks the exact same question again.
+  7. AI retrieves the corrected entry and returns the approved correction.
+  8. Old outdated policy does NOT override the correction.
+  9. Cross-tenant check: Shop B customer asking the same question receives fallback, proving zero data leakage.
+
+### 4. Verified Current AI Model Configuration
+- **Google Gemini**: Configured with Google's flagship Flash model `gemini-3.8-flash` (with optional `gemini-3.5-flash-lite`).
+  - *Rationale*: Google's current Flash model offering high reasoning quality, rapid token latency, and cost efficiency for conversational customer support FAQ workloads.
+  - *Verification Date*: November 21, 2026 via official Google AI documentation (`ai.google.dev`).
+- **Anthropic Claude**: Configured with Anthropic's current fast model `claude-haiku-5-5` (with optional `claude-sonnet-5-5`).
+  - *Verification Date*: November 21, 2026 via official Anthropic documentation (`docs.anthropic.com`).
+- **Dynamic Environment Configuration**: Models are configured via `GEMINI_MODEL` and `CLAUDE_MODEL` in `backend/config.py` and `.env`, completely eliminating hardcoded model strings.
 
 ---
 
-## 4. Technology Stack
+## 3. Technology Stack
 
 - **Frontend**:
   - React 18
   - Vite 6
   - Tailwind CSS 3
   - React Router DOM 6
-  - Axios
+  - Axios (with JWT interceptors)
   - Lucide React Icons
 - **Backend**:
   - Python 3.13 / 3.11+
   - Flask 3.1 & Flask-CORS
   - Flask-SQLAlchemy 3.1 & SQLAlchemy 2.0 ORM
   - Flask-Migrate & Alembic
-  - PyJWT & Bcrypt (Password hashing)
-  - Pytest & Httpx
+  - PyJWT & Bcrypt (12-round salted hashing)
+  - Pytest 9.1
 - **Database**:
-  - PostgreSQL (Supabase / Render PostgreSQL)
-  - SQLite fallback for zero-configuration local development
+  - SQLite for instant local zero-config development (`instance/shop_faq.db`)
+  - PostgreSQL (Supabase / Render PostgreSQL) for production
 - **AI Providers**:
-  - Google Gemini 1.5 Flash (Default)
-  - Anthropic Claude 3 Haiku (Configurable alternative)
-  - Local intelligent rule-based evaluation fallback for offline testing
+  - Google Gemini API (`gemini-3.8-flash`)
+  - Anthropic Claude API (`claude-haiku-5-5`)
+  - Intelligent context evaluator fallback for offline and deterministic testing
 - **Email Infrastructure**:
+  - Gmail SMTP (Port 587 with STARTTLS)
+  - Gmail IMAP (Port 993 with SSL for incoming two-way reply synchronization)
   - Resend API
-  - Standard SMTP (Gmail, SendGrid, Mailgun)
-  - Development mock dispatcher with delivery failure tracking and retry
-- **Deployment**:
-  - Frontend: Vercel (`vercel.json` SPA configuration included)
-  - Backend: Render (`render.yaml` blueprint included)
-  - Database: Supabase PostgreSQL
+  - Development mock dispatcher with delivery failure tracking
 
 ---
 
-## 5. System Architecture
+## 4. Architecture & Workflows
 
 ```mermaid
 flowchart TD
@@ -105,19 +105,20 @@ flowchart TD
     end
 
     subgraph Backend [Flask REST API on Render]
-        AuthMid[Auth & Tenant Middleware]
-        SearchSvc[Search & Relevance Engine]
-        AISvc[AI Provider: Gemini / Claude]
-        EmailSvc[Notification Engine: Resend / SMTP]
+        AuthMid[Auth & Tenant Isolation Middleware]
+        SearchSvc[Relevance & Ranking Engine]
+        AISvc[AI Provider: Gemini 3.8 Flash / Claude]
+        EmailSvc[Notification Engine: Gmail SMTP / Resend]
+        IMAPSvc[Inbound Sync: Gmail IMAP]
         DBORM[SQLAlchemy ORM Engine]
     end
 
     subgraph Storage [Supabase / PostgreSQL]
-        DB[(Multi-Tenant PostgreSQL Database)]
+        DB[(Multi-Tenant Database)]
     end
 
     Cust -->|Visits /s/:slug| PubChat
-    Owner -->|Manages KB & Answers| AdminApp
+    Owner -->|Manages Knowledge & Answers| AdminApp
 
     PubChat -->|Customer Session & Chat API| AuthMid
     AdminApp -->|Admin JWT APIs| AuthMid
@@ -126,60 +127,34 @@ flowchart TD
     SearchSvc -->|Filtered by shop_id| DBORM
     DBORM --> DB
     SearchSvc --> AISvc
-    AISvc -->|Generates Answer or Fallback| PubChat
+    AISvc -->|Answers or Escalates to Pending| PubChat
 
     AdminApp -->|Answers Pending Inquiries| EmailSvc
     EmailSvc -->|Dispatches Email Notification| Cust
+    Cust -->|Replies via Email| IMAPSvc
+    IMAPSvc -->|Syncs Inbound Reply| AdminApp
 ```
 
 ---
 
-## 6. Database ER Diagram
-
-```mermaid
-erDiagram
-    users ||--o{ shops : "owns"
-    users ||--o{ activity_logs : "performed_by"
-
-    shops ||--o{ knowledge_base : "contains"
-    shops ||--o{ customers : "has"
-    shops ||--o{ customer_sessions : "maintains"
-    shops ||--o{ conversations : "logs"
-    shops ||--o{ messages : "stores"
-    shops ||--o{ customer_questions : "tracks"
-    shops ||--o{ answer_feedback : "rates"
-    shops ||--o{ activity_logs : "records"
-
-    customers ||--o{ customer_sessions : "initiates"
-    customers ||--o{ conversations : "participates_in"
-    customers ||--o{ customer_questions : "asks"
-
-    customer_sessions ||--o{ conversations : "authenticates"
-    conversations ||--o{ messages : "contains"
-    conversations ||--o{ customer_questions : "generates"
-
-    customer_questions ||--o{ answer_feedback : "evaluated_by"
-```
-
-For full column descriptions, index definitions, and constraints, see [docs/database-schema.md](docs/database-schema.md).
-
----
-
-## 7. Folder Structure
+## 5. Folder Structure
 
 ```
-shop-faq-bot/
+ShopGenie-AI/
 ├── backend/
 │   ├── app/
 │   │   ├── middleware/        # JWT auth, tenant scoping, rate limiting
 │   │   ├── models/            # 10 SQLAlchemy models with shop_id scoping
-│   │   ├── routes/            # auth, dashboard, knowledge, shop, customer, questions, feedback
-│   │   ├── services/          # ai_service, email_service, search_service
+│   │   ├── routes/            # auth, dashboard, knowledge, shop, customer, questions, feedback, email
+│   │   ├── services/          # ai_service, email_service, email_sync_service, search_service
 │   │   ├── utils/             # security, helpers, slugify
 │   │   └── __init__.py        # Flask application factory & CORS
 │   ├── tests/
 │   │   ├── conftest.py        # Fixtures and in-memory test DB
-│   │   ├── test_comprehensive_suite.py # 20 automated tests
+│   │   ├── test_chatbot_intelligence.py   # Intent & sanitization tests
+│   │   ├── test_comprehensive_suite.py    # Core 20 test suite with strict email checks
+│   │   ├── test_email_service.py          # SMTP, Resend, and real delivery tests
+│   │   ├── test_enhancements.py           # Auto-learning, retry regression, feedback, IMAP
 │   │   └── run_tests.py       # Standalone test runner
 │   ├── config.py              # Configuration & environment loader
 │   ├── run.py                 # Backend entry point
@@ -194,17 +169,14 @@ shop-faq-bot/
 │   │   │   └── admin/         # Dashboard, KnowledgeBase, Questions, RateAnswers, Settings
 │   │   ├── services/          # Modular Axios API clients
 │   │   ├── App.jsx            # React Router setup & protected routes
-│   │   ├── index.css          # Tailwind CSS & custom animations
+│   │   ├── index.css          # Tailwind CSS
 │   │   └── main.jsx           # React DOM root
 │   ├── package.json           # Frontend dependencies
 │   ├── vite.config.js         # Vite configuration with /api proxy
 │   ├── tailwind.config.js     # Tailwind design system configuration
 │   ├── vercel.json            # Vercel SPA rewrite rules
 │   └── .env.example           # Frontend environment template
-├── docs/
-│   ├── architecture.md        # Architecture, workflows & sequence diagrams
-│   ├── database-schema.md     # 10 database tables & ER diagram
-│   └── api-documentation.md   # Complete REST API specifications
+├── docs/                      # Architecture, Database Schema, API Docs
 ├── render.yaml                # Render deployment configuration
 ├── README.md                  # Project documentation
 └── .gitignore                 # Git ignore patterns
@@ -212,310 +184,133 @@ shop-faq-bot/
 
 ---
 
-## 8. Installation Instructions
+## 6. Installation & Local Setup
 
 ### Prerequisites
-- Python 3.10+ (tested on Python 3.13)
+- Python 3.10+ (Python 3.13 tested)
 - Node.js 18+ & npm
-- PostgreSQL database (or use local SQLite for instant setup)
+- SQLite (included by default) or PostgreSQL
 
-### 1. Clone or Open Project
-```bash
-git clone <repository-url>
-cd shop-faq-bot
-```
-
-### 2. Backend Setup
+### 1. Clone & Setup Backend
 ```bash
 cd backend
 python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### 3. Frontend Setup
+### 2. Configure Environment (`backend/.env`)
+```ini
+# Database: Leave empty for SQLite, or provide PostgreSQL URL
+DATABASE_URL=sqlite:///shop_faq.db
+
+# Security
+SECRET_KEY=shopgenie-super-secret-key-change-in-production
+JWT_SECRET_KEY=shopgenie-jwt-secret-key-change-in-production
+
+# AI Provider (gemini or claude)
+AI_PROVIDER=gemini
+GEMINI_MODEL=gemini-3.8-flash
+GEMINI_API_KEY=your_gemini_api_key_from_google_ai_studio
+
+# Email Provider Configuration (Choose 'smtp' or 'resend')
+EMAIL_PROVIDER=smtp
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_gmail@gmail.com
+SMTP_PASSWORD=your_16_character_app_password
+SMTP_USE_TLS=true
+SMTP_TIMEOUT=10
+
+# Two-Way Email Inbound Sync (Gmail IMAP)
+IMAP_SERVER=imap.gmail.com
+IMAP_PORT=993
+
+# Live Email Testing
+RUN_REAL_EMAIL_TESTS=false
+TEST_INBOX_EMAIL=your_test_inbox@gmail.com
+```
+
+### 3. Setup Frontend
 ```bash
 cd ../frontend
 npm install
-cp .env.example .env
+npm run build
 ```
 
----
-
-## 9. Environment Variables Setup
-
-### Backend (`backend/.env`):
-```ini
-# Database: Supabase PostgreSQL (or leave empty to default to local SQLite)
-DATABASE_URL=postgresql://postgres.ref:password@aws-0-region.pooler.supabase.com:6543/postgres
-
-# Security
-SECRET_KEY=super-secret-key-change-me
-JWT_SECRET_KEY=super-jwt-secret-key-change-me
-
-# AI Configuration (gemini or claude)
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key_here
-ANTHROPIC_API_KEY=your_claude_api_key_here
-
-# Email Configuration (Choose EITHER Resend OR Gmail SMTP)
-EMAIL_PROVIDER=resend
-
-# Option A: Resend API
-RESEND_API_KEY=re_your_resend_api_key
-MAIL_FROM=onboarding@resend.dev
-
-# Option B: Gmail / Standard SMTP
-# EMAIL_PROVIDER=smtp
-# SMTP_SERVER=smtp.gmail.com
-# SMTP_PORT=587
-# SMTP_USERNAME=your_email@gmail.com
-# SMTP_PASSWORD=your_16_character_app_password
-# SMTP_USE_TLS=true
-# SMTP_TIMEOUT=10
-
-# URLs
-FRONTEND_URL=http://localhost:5173
-BACKEND_URL=http://localhost:5000
-CUSTOMER_SESSION_HOURS=36
-```
-
-### Frontend (`frontend/.env`):
-```ini
-# Leave blank in development to use Vite's built-in /api proxy
-VITE_API_BASE_URL=http://localhost:5000
-```
-
----
-
-## 10. Database Setup & Seeding
-
-The application creates all required tables on startup automatically. To seed the database with the two demo shops:
-
+### 4. Seed Demo Shops
 ```bash
 python backend/seed.py
 ```
-This populates:
-1. **Shop A (Ravi Mobiles)**:
-   - Slug: `ravi-mobiles`
-   - Owner Email: `ravi@gmail.com`
-   - Password: `password123`
-   - Pre-seeded Knowledge: Open 9 AM to 9 PM, sells Samsung & Apple phones, 7-day returns.
-2. **Shop B (Sri Fashion)**:
-   - Slug: `sri-fashion`
-   - Owner Email: `sri@gmail.com`
-   - Password: `password123`
-   - Pre-seeded Knowledge: Open 10 AM to 8 PM, sells men's & women's clothing, 5-day returns.
+
+### 5. Start Servers
+- **Backend**:
+  ```bash
+  python backend/run.py
+  ```
+  Runs at `http://localhost:5000`
+- **Frontend**:
+  ```bash
+  cd frontend
+  npm run dev
+  ```
+  Runs at `http://localhost:5173`
 
 ---
 
-## 11. AI Provider Setup
+## 7. Automated Testing & Verification
 
-### Using Google Gemini (Default)
-1. Obtain an API key from [Google AI Studio](https://aistudio.google.com/).
-2. Set in `backend/.env`:
-   ```ini
-   AI_PROVIDER=gemini
-   GEMINI_API_KEY=AIzaSy...
-   ```
-
-### Using Anthropic Claude (Alternative)
-1. Obtain an API key from [Anthropic Console](https://console.anthropic.com/).
-2. Set in `backend/.env`:
-   ```ini
-   AI_PROVIDER=claude
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-
-*Note: If no API key is provided, the backend seamlessly falls back to a deterministic, intelligent context extractor so the application and all automated tests run out-of-the-box offline!*
-
----
-
-## 12. Email Provider Setup
-
-### Option 1: Using Resend (Recommended)
-1. Sign up at [Resend.com](https://resend.com) and generate an API key in **API Keys**.
-2. Set in `backend/.env`:
-   ```ini
-   EMAIL_PROVIDER=resend
-   RESEND_API_KEY=re_your_api_key_here
-   MAIL_FROM=onboarding@resend.dev
-   ```
-   > **Note on Resend Free / Sandbox Accounts:** If your domain is not verified on Resend, Resend strictly allows sending **ONLY from `onboarding@resend.dev`** and **ONLY to your registered Resend account email**. To deliver emails to arbitrary customer addresses, verify a domain in the Resend dashboard and update `MAIL_FROM=support@yourverifieddomain.com`.
-
-### Option 2: Using Gmail SMTP
-1. Enable **2-Step Verification** on your Google Account.
-2. Go to [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and create a **16-character App Password**.
-3. Set in `backend/.env`:
-   ```ini
-   EMAIL_PROVIDER=smtp
-   SMTP_SERVER=smtp.gmail.com
-   SMTP_PORT=587
-   SMTP_USERNAME=your_email@gmail.com
-   SMTP_PASSWORD=your_16_character_app_password
-   SMTP_USE_TLS=true
-   SMTP_TIMEOUT=10
-   ```
-   > **Note:** Gmail App Passwords work immediately without domain verification, making it ideal for testing live inbox delivery to any customer email address!
-
----
-
-## 13. Running the Application Locally
-
-### 1. Start the Flask Backend:
+Run the full automated test suite (62 total scenarios):
 ```bash
-python backend/run.py
-```
-The backend API starts on `http://localhost:5000`.
-
-### 2. Start the React Frontend:
-```bash
-cd frontend
-npm run dev
-```
-The frontend starts on `http://localhost:5173`.
-
----
-
-## 14. Running Automated Tests
-
-Run the complete 20-test automated test suite:
-```bash
-python backend/tests/run_tests.py
-```
-Or directly with pytest:
-```bash
-python -m pytest backend/tests/test_comprehensive_suite.py -v
+python -m pytest backend/tests -v
 ```
 
-### Test Coverage Checklist:
-- [x] Test 1: Shop owner can register
-- [x] Test 2: Shop owner can log in
-- [x] Test 3: Duplicate email registration is rejected
-- [x] Test 4: Owner can add knowledge
-- [x] Test 5: Owner can edit knowledge
-- [x] Test 6: Owner can delete knowledge
-- [x] Test 7: Each shop receives a unique slug
-- [x] Test 8: Customer can access the correct shop chatbot
-- [x] Test 9: Customer session persists after reload
-- [x] Test 10: Customer session expires after 36 hours
-- [x] Test 11: AI retrieves only the current shop's knowledge
-- [x] Test 12: AI returns fallback for unknown questions
-- [x] Test 13: Unknown questions are saved as Pending
-- [x] Test 14: Owner can answer pending questions
-- [x] Test 15: Email is triggered after an answer
-- [x] Test 16: Failed emails can be retried
-- [x] Test 17: Good feedback is saved
-- [x] Test 18: Bad feedback is saved
-- [x] Test 19: Correct answers are added to the knowledge base
-- [x] Test 20: Shop A cannot access Shop B's information (strict tenant isolation)
+### Test Suite Summary:
+- **Core Multi-Tenant Suite (`test_comprehensive_suite.py`)**: 20 tests covering registration, login, unique slugs, public chatbot links, 36h session memory, multi-tenant knowledge retrieval, strict email trigger, and strict email retry.
+- **Chatbot Intelligence Suite (`test_chatbot_intelligence.py`)**: 12 tests covering intent matching, semantic domain synonyms, empty/malformed AI output prevention, fallback triggering, and metadata sanitization.
+- **Email Service Suite (`test_email_service.py`)**: 14 tests covering Resend dispatch, SMTP authentication, STARTTLS handshake, recipient validation, duplicate prevention, and optional live SMTP integration.
+- **Enhancement Suite (`test_enhancements.py`)**: 16 tests covering customer feedback (good/bad), dashboard KPI updates, automatic knowledge base learning from pending answers, same-question retry after correction, IMAP inbound synchronization, and cross-shop isolation.
 
 ---
 
-## 15. Complete Demo Walkthrough (Section 18)
+## 8. 5–10 Minute Mentor Demonstration Script
 
-Follow these steps to demonstrate the end-to-end multi-tenant lifecycle:
+Use the seeded accounts or create new ones to demonstrate all features:
 
-1. **Visit Landing Page**: Open `http://localhost:5173` to view the SaaS features and how it works.
-2. **Login to Shop A**: Go to `/login` and click **"Ravi Mobiles"** demo button (`ravi@gmail.com` / `password123`).
-3. **Inspect Knowledge Base**: Click **Knowledge Base** in the sidebar. Note: Opening hours (9 AM - 9 PM) and smartphone brands.
-4. **Open Ravi Mobiles Chatbot**: Click **"Open Chatbot"** in the top navigation (`http://localhost:5173/s/ravi-mobiles`).
-   - Enter Customer Details: `Alex Brown`, `alex@test.com`.
-   - Ask: *"What time do you open?"*
-   - Response: *"Our shop opens at 9 AM and closes at 9 PM."*
-5. **Open Sri Fashion Chatbot**: Open a new tab to `http://localhost:5173/s/sri-fashion`.
-   - Enter Customer Details: `Bella Green`, `bella@test.com`.
-   - Ask: *"What time do you open?"*
-   - Response: *"Our shop opens at 10 AM and closes at 8 PM."*
-   - *Proves strict tenant isolation: Shop A returns 9 AM, Shop B returns 10 AM.*
-6. **Trigger Pending Question Escalation**:
-   - In Ravi Mobiles chat, ask: *"Do you provide home delivery?"*
-   - Since delivery is not in Ravi Mobiles' knowledge base, the bot replies:
-     `"Thank you! The shop owner will reply to you soon by email."`
-7. **Answer Pending Question**:
-   - Switch back to Ravi Mobiles admin portal and click **Customer Questions**.
-   - Notice the pending question from Alex Brown.
-   - Click **"Answer Now"**, type: *"Yes, we provide home delivery within 5 km of our shop for free."*
-   - Click **"Send Answer & Email"**.
-   - The question is marked answered, the customer receives an email notification, and the answer is **automatically added to the Knowledge Base**.
-8. **Verify Knowledge Improvement**:
-   - Go to **Knowledge Base** -> Notice the new entry titled `FAQ: Do you provide home delivery?` with badge `Learned from Question`.
-   - Go back to the customer chat and ask: *"Do you provide home delivery?"*
-   - AI answers immediately without human escalation!
-9. **Rate Answers & AI Correction**:
-   - In admin, navigate to **Rate Answers**.
-   - Rate an answer **Good** -> Stats update.
-   - Click **Bad** on another answer -> Enter Reason: *"Missing fast charging details"* and Correct Answer: *"Yes, we sell 65W fast chargers."*
-   - Click **"Save Correct Answer"** -> Automatically added under `AI Corrections`. Future answers incorporate this correction.
+| Step | Action | Expected Result |
+| :--- | :--- | :--- |
+| **1. Multi-Tenant Accounts** | Sign in as **Shop A** (`ravi@gmail.com` / `password123`) in Browser 1. Sign in as **Shop B** (`sri@gmail.com` / `password123`) in an Incognito window. | Both owners see their own isolated dashboard, settings, and knowledge base. |
+| **2. Unique Customer Links** | Copy link from Shop A dashboard (`/s/ravi-mobiles`) and Shop B dashboard (`/s/sri-fashion`). Open both in separate tabs. | Shop A displays Ravi Mobiles branding. Shop B displays Sri Fashion branding. |
+| **3. Knowledge Isolation** | In Shop A, customer asks: *"What time do you open?"*<br>In Shop B, customer asks: *"What time do you open?"* | Shop A AI replies: *"Our shop opens at 9 AM and closes at 9 PM."*<br>Shop B AI replies: *"Our shop opens at 10 AM and closes at 8 PM."* (Zero cross-shop leak). |
+| **4. Unknown Question -> Pending** | In Shop A chat, customer asks: *"Do you provide home delivery?"* | AI returns fallback: *"Thank you! The shop owner will reply to you soon by email."* Question is filed as Pending. |
+| **5. Owner Answers Pending** | Shop A owner opens **Customer Questions** -> Pending. Enters: *"Yes, we provide free home delivery within 5 kilometres."* and clicks **Send Answer**. | 1. Status changes to Answered.<br>2. Real email notification is submitted to customer.<br>3. Original question and answer are **automatically added to Knowledge Base**. |
+| **6. Verification of Learned Knowledge** | Customer in Shop A chat asks the exact same question again: *"Do you provide home delivery?"* | AI immediately retrieves the approved answer and replies: *"Yes, we provide free home delivery within 5 kilometres."* without human intervention! |
+| **7. Cross-Shop Isolation on Learned Knowledge** | Customer in Shop B chat asks: *"Do you provide home delivery?"* | Shop B returns fallback! Shop B cannot access Shop A's learned delivery knowledge. |
+| **8. Two-Way Email Reply** | Customer replies to the notification email in their Gmail inbox. Shop owner clicks **Sync Gmail** in dashboard. | Customer's incoming email response is ingested and displayed in the owner's conversation thread. |
+| **9. Bad Answer Correction** | Customer asks a question on Shop A, rates the answer with 👎 Thumbs Down. Owner opens **Rate Answers**, clicks **Correct Answer**, and saves verified text. | Correction is saved under `AI Corrections`. Asking the same question immediately returns the corrected answer. |
 
 ---
 
-## 16. Deployment Instructions
+## 9. Production Deployment Guide
 
-### 1. Database Deployment (Supabase)
-1. Create a project at [database.new](https://database.new).
-2. Go to **Project Settings** -> **Database** and copy the **URI connection string** (`Transaction` or `Session` pooler).
-3. Set this as `DATABASE_URL` in your Render backend settings.
+### Database (PostgreSQL / Supabase)
+1. Provision a PostgreSQL instance on Supabase or Render.
+2. Set `DATABASE_URL=postgresql://user:password@host:port/dbname` in production environment.
 
-### 2. Backend Deployment (Render)
-1. Push your code to GitHub.
-2. In [Render Dashboard](https://dashboard.render.com), click **New +** -> **Blueprint**.
-3. Select your repository. Render automatically reads `render.yaml`.
-4. Configure your environment variables (`GEMINI_API_KEY`, `RESEND_API_KEY`, `FRONTEND_URL`).
-5. Deploy service.
+### Backend (Render)
+1. Link GitHub repository to Render using `render.yaml`.
+2. Configure environment variables (`DATABASE_URL`, `SECRET_KEY`, `JWT_SECRET_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `EMAIL_PROVIDER`, `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `FRONTEND_URL`).
+3. Deploy service with Gunicorn: `gunicorn backend.run:app`.
 
-### 3. Frontend Deployment (Vercel)
-1. In [Vercel Dashboard](https://vercel.com), click **Add New...** -> **Project**.
-2. Select your repository and choose **Root Directory**: `frontend`.
-3. Set Environment Variable:
-   - `VITE_API_BASE_URL`: `https://your-backend.onrender.com`
-4. Click **Deploy**. Vercel automatically uses `vercel.json` for SPA routing.
+### Frontend (Vercel)
+1. Deploy the `frontend/` directory to Vercel.
+2. Set environment variable: `VITE_API_BASE_URL=https://your-backend.onrender.com`.
+3. Vercel automatically routes single-page application requests using `vercel.json`.
 
 ---
 
-## 17. Security & Multi-Tenancy Architecture
+## 10. Security & Compliance
 
-1. **Tenant Isolation**:
-   - Database queries are explicitly scoped with `filter_by(shop_id=...)`.
-   - Admin access requires signed HS256 JWT tokens with verified shop ownership.
-   - Cross-tenant modifications (e.g. attempting to edit another shop's knowledge entry) return HTTP 404 unauthorized.
-2. **Secure Session Identifier**:
-   - Customer session tokens are generated via `secrets.token_urlsafe(48)`.
-   - Raw tokens are never stored plaintext; only SHA-256 hashes are persisted in the database.
-   - Sessions expire strictly after 36 hours via server-side UTC timestamp comparisons.
-3. **Credential Security**:
-   - Passwords hashed with salted Bcrypt (12 rounds in production).
-   - Zero API keys or secrets exposed to the frontend.
-4. **Input Sanitization & Rate Limiting**:
-   - In-memory rate limiting applied to session creation and chat endpoints to mitigate DDoS and spam.
-   - SQL injection prevented through SQLAlchemy parameterized queries.
-
----
-
-## 18. Git Commands to Push to GitHub
-
-```bash
-git init
-git add .
-git commit -m "feat: complete multi-tenant AI shop FAQ bot platform"
-git branch -M main
-git remote add origin https://github.com/your-username/shop-faq-bot.git
-git push -u origin main
-```
-
----
-
-## 19. Demo Credentials
-
-| Role | Shop Name | Email | Password | Public Chatbot URL |
-| :--- | :--- | :--- | :--- | :--- |
-| **Owner A** | Ravi Mobiles | `ravi@gmail.com` | `password123` | `http://localhost:5173/s/ravi-mobiles` |
-| **Owner B** | Sri Fashion | `sri@gmail.com` | `password123` | `http://localhost:5173/s/sri-fashion` |
-
----
-
-## 20. Known Limitations & Roadmap
-
-- **Vector Search / Embeddings**: The current retrieval engine uses weighted keyword and phrase scoring across title, category, and content. Future versions can incorporate pgvector embeddings for deeper semantic similarity.
-- **WhatsApp Webhook Integration**: Public chatbot links can be integrated directly with WhatsApp Business Cloud API webhooks.
-- **Multi-Agent Routing**: Multiple sub-agents per shop for different departments (billing, hardware support, returns).
-
+- **Multi-Tenant Protection**: Every database query is parameterized and strictly scoped by `shop_id`.
+- **Password Security**: Passwords hashed with 12-round salted Bcrypt.
+- **Session Protection**: Customer sessions are validated server-side using SHA-256 hashed 48-byte cryptographic tokens with a strict 36-hour expiry.
+- **Redaction**: Zero passwords, app passwords, or API keys are ever printed in logs, test output, or public API responses.

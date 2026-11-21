@@ -48,9 +48,11 @@ const PublicChatPage = () => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [feedbackMap, setFeedbackMap] = useState({});
+  const [ownerFeedbackMap, setOwnerFeedbackMap] = useState({});
 
   const messagesEndRef = useRef(null);
+  const isStreamingRef = useRef(false);
+  const abortControllerRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -82,35 +84,66 @@ const PublicChatPage = () => {
 
   // 2. Validate existing session & load previous messages
   useEffect(() => {
-    const validateExistingSession = async () => {
+    let intervalId = null;
+
+    const validateExistingSession = async (silent = false) => {
       if (!sessionToken || !slug) return;
+      if (isStreamingRef.current) return; // Skip updating messages while streaming is in progress
       try {
         const res = await customerApi.validateSession(slug, sessionToken);
         if (res.data?.success && res.data.data.valid) {
-          setCustomer(res.data.data.customer);
-          localStorage.setItem(`shopfaq_cust_${slug}`, JSON.stringify(res.data.data.customer));
+          if (!silent) {
+            setCustomer(res.data.data.customer);
+            localStorage.setItem(`shopfaq_cust_${slug}`, JSON.stringify(res.data.data.customer));
+          }
           if (res.data.data.messages && res.data.data.messages.length > 0) {
-            setMessages(res.data.data.messages.map(m => ({
-              id: m.id,
-              sender: m.sender_type,
-              text: m.message_content,
-              time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            })));
+            const loadedOwnerFeedback = {};
+            const msgs = res.data.data.messages.map(m => {
+              if (m.sender_type === 'owner' && m.feedback_type) {
+                loadedOwnerFeedback[m.id] = {
+                  type: m.feedback_type,
+                  submitted: true
+                };
+              }
+              const isFallback = m.sender_type === 'ai' && (m.message_content?.includes("The shop owner will reply") || m.is_pending);
+              return {
+                id: m.id,
+                sender: m.sender_type,
+                text: m.message_content,
+                questionId: m.question_id,
+                isPendingFallback: isFallback,
+                time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              };
+            });
+            setMessages(msgs);
+            if (Object.keys(loadedOwnerFeedback).length > 0) {
+              setOwnerFeedbackMap(prev => ({ ...prev, ...loadedOwnerFeedback }));
+            }
           }
         }
       } catch (err) {
-        // Session expired or invalid
-        console.warn("Existing customer session expired. Re-prompting for customer details.");
-        localStorage.removeItem(`shopfaq_session_${slug}`);
-        localStorage.removeItem(`shopfaq_cust_${slug}`);
-        setSessionToken(null);
-        setCustomer(null);
+        if (!silent) {
+          console.warn("Existing customer session expired. Re-prompting for customer details.");
+          localStorage.removeItem(`shopfaq_session_${slug}`);
+          localStorage.removeItem(`shopfaq_cust_${slug}`);
+          setSessionToken(null);
+          setCustomer(null);
+        }
       }
     };
 
-    if (shop) {
-      validateExistingSession();
+    if (shop && sessionToken) {
+      validateExistingSession(false);
+      // Poll every 5s for new replies from shop owner
+      intervalId = setInterval(() => {
+        validateExistingSession(true);
+      }, 5000);
     }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, [shop, slug, sessionToken]);
 
   // Handle customer registration form
@@ -152,7 +185,7 @@ const PublicChatPage = () => {
     }
   };
 
-  // Send message (or retry failed query)
+  // Send message (real-time streaming with progressive chunks)
   const handleSendMessage = async (e, retryText = null) => {
     if (e) e.preventDefault();
     const queryToSend = (retryText || inputMessage).trim();
@@ -174,102 +207,184 @@ const PublicChatPage = () => {
     }
 
     setIsTyping(true);
+    isStreamingRef.current = true;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    const streamMsgId = `ai_stream_${Date.now()}`;
+    let hasReceivedFirstChunk = false;
+    let accumulatedText = '';
 
     try {
-      const res = await customerApi.sendChat(slug, sessionToken, userText);
-      if (res.data?.success) {
-        const data = res.data.data;
-        const answerText = (data.answer && data.answer.trim())
-          ? data.answer.trim()
-          : "Thank you! The shop owner will reply to you soon by email.";
-        const isFallback = !data.can_answer || answerText === "Thank you! The shop owner will reply to you soon by email.";
+      await customerApi.sendChatStream(
+        slug,
+        sessionToken,
+        userText,
+        {
+          onStart: () => {
+            // Stream connection opened
+          },
+          onChunk: (chunkText) => {
+            if (!chunkText) return;
+            accumulatedText += chunkText;
+            if (!hasReceivedFirstChunk) {
+              hasReceivedFirstChunk = true;
+              setIsTyping(false); // Hide typing dots, show progressive answer bubble
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: streamMsgId,
+                  sender: 'ai',
+                  text: accumulatedText,
+                  isStreaming: true,
+                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }
+              ]);
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamMsgId ? { ...m, text: accumulatedText } : m
+                )
+              );
+            }
+          },
+          onDone: (data) => {
+            isStreamingRef.current = false;
+            setIsTyping(false);
+            const finalAnswer = (data.answer && data.answer.trim())
+              ? data.answer.trim()
+              : (accumulatedText.trim() || "Thank you! The shop owner will reply to you soon by email.");
+            const isFallback = !data.can_answer || finalAnswer.includes("The shop owner will reply to you soon by email.");
 
-        const aiMsg = {
-          id: data.message_id || `ai_${Date.now()}`,
-          sender: 'ai',
-          text: answerText,
-          isPendingFallback: isFallback,
-          questionId: data.question_id,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-        setMessages((prev) => [...prev, aiMsg]);
-      }
+            if (!hasReceivedFirstChunk) {
+              hasReceivedFirstChunk = true;
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: data.message_id || streamMsgId,
+                  sender: 'ai',
+                  text: finalAnswer,
+                  isStreaming: false,
+                  isPendingFallback: isFallback,
+                  questionId: data.question_id,
+                  time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                }
+              ]);
+            } else {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamMsgId
+                    ? {
+                        ...m,
+                        id: data.message_id || m.id,
+                        text: finalAnswer,
+                        isStreaming: false,
+                        isPendingFallback: isFallback,
+                        questionId: data.question_id
+                      }
+                    : m
+                )
+              );
+            }
+          },
+          onError: (errData) => {
+            console.error("Stream error received:", errData);
+            isStreamingRef.current = false;
+            setIsTyping(false);
+            if (!hasReceivedFirstChunk) {
+              const errorMsg = {
+                id: `err_${Date.now()}`,
+                sender: 'ai',
+                text: 'We encountered a momentary connection error. You can retry your question below.',
+                isError: true,
+                failedQuery: userText,
+                time: nowTime
+              };
+              setMessages((prev) => [...prev, errorMsg]);
+            }
+          }
+        },
+        abortControllerRef.current.signal
+      );
     } catch (err) {
-      if (err.response?.data?.errors?.requires_reauth) {
-        // Session expired (36h passed)
+      if (err.name === 'AbortError') {
+        return; // Cleanup on abort
+      }
+      isStreamingRef.current = false;
+      setIsTyping(false);
+
+      if (err.response?.data?.errors?.requires_reauth || err.response?.status === 401) {
         localStorage.removeItem(`shopfaq_session_${slug}`);
         setSessionToken(null);
       } else {
-        const errorMsg = {
-          id: `err_${Date.now()}`,
-          sender: 'ai',
-          text: 'We encountered a momentary connection error. You can retry your question below.',
-          isError: true,
-          failedQuery: userText,
-          time: nowTime
-        };
-        setMessages((prev) => [...prev, errorMsg]);
+        if (!hasReceivedFirstChunk) {
+          const errorMsg = {
+            id: `err_${Date.now()}`,
+            sender: 'ai',
+            text: 'We encountered a momentary connection error. You can retry your question below.',
+            isError: true,
+            failedQuery: userText,
+            time: nowTime
+          };
+          setMessages((prev) => [...prev, errorMsg]);
+        }
       }
     } finally {
+      isStreamingRef.current = false;
       setIsTyping(false);
     }
   };
 
-  // Handle customer feedback clicks (Good / Bad Answer)
-  const handleFeedback = async (questionId, type) => {
-    if (!questionId || !sessionToken) return;
+  // Handle customer feedback for shop owner replies (👍 Good / 👎 Bad)
+  const handleOwnerFeedback = async (messageId, type) => {
+    if (!messageId || !sessionToken) return;
+    if (ownerFeedbackMap[messageId]?.submitted) return; // One-time feedback enforcement
 
-    // Optimistically update feedback state
-    setFeedbackMap((prev) => ({
+    const previousFeedback = ownerFeedbackMap[messageId];
+
+    // Optimistically update owner feedback state
+    setOwnerFeedbackMap((prev) => ({
       ...prev,
-      [questionId]: {
-        ...(prev[questionId] || {}),
+      [messageId]: {
         type,
-        submitted: true,
-        showCommentBox: type === 'bad',
+        submitted: false,
+        submitting: true,
+        error: null,
       }
     }));
 
     try {
-      await customerApi.submitFeedback(slug, sessionToken, {
-        question_id: questionId,
+      const res = await customerApi.submitOwnerFeedback(slug, sessionToken, {
+        message_id: messageId,
         feedback_type: type
       });
-    } catch (err) {
-      console.error("Failed to submit answer feedback:", err);
-    }
-  };
-
-  const handleCommentChange = (questionId, comment) => {
-    setFeedbackMap((prev) => ({
-      ...prev,
-      [questionId]: {
-        ...(prev[questionId] || {}),
-        comment
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'Failed to submit feedback');
       }
-    }));
-  };
-
-  const handleCommentSubmit = async (questionId) => {
-    const fb = feedbackMap[questionId];
-    if (!fb || !questionId || !sessionToken) return;
-
-    try {
-      await customerApi.submitFeedback(slug, sessionToken, {
-        question_id: questionId,
-        feedback_type: 'bad',
-        comment: fb.comment || ''
-      });
-      setFeedbackMap((prev) => ({
+      setOwnerFeedbackMap((prev) => ({
         ...prev,
-        [questionId]: {
-          ...prev[questionId],
-          showCommentBox: false,
-          commentSubmitted: true
+        [messageId]: {
+          type,
+          submitted: true,
+          submitting: false,
+          error: null,
         }
       }));
     } catch (err) {
-      console.error("Failed to submit feedback comment:", err);
+      console.error("Failed to submit owner reply feedback:", err);
+      const isAlreadySubmitted = err.response?.status === 409;
+      setOwnerFeedbackMap((prev) => ({
+        ...prev,
+        [messageId]: {
+          type: isAlreadySubmitted ? (err.response?.data?.errors?.existing_feedback || type) : (previousFeedback?.type || null),
+          submitted: isAlreadySubmitted ? true : (previousFeedback?.submitted || false),
+          submitting: false,
+          error: isAlreadySubmitted ? 'Feedback has already been submitted for this reply.' : (err.response?.data?.message || 'Failed to submit feedback. Please try again.'),
+        }
+      }));
     }
   };
 
@@ -449,26 +564,103 @@ const PublicChatPage = () => {
 
               {messages.map((msg, index) => {
                 const isCust = msg.sender === 'customer';
+                const isOwner = msg.sender === 'owner';
+                const isAi = msg.sender === 'ai';
+
                 return (
                   <div
                     key={msg.id || index}
                     className={`flex items-end space-x-2 ${isCust ? 'justify-end' : 'justify-start'}`}
                   >
                     {!isCust && (
-                      <div className="w-7 h-7 rounded-lg bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                        {shopInitial}
-                      </div>
+                      isOwner ? (
+                        <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0 shadow-sm" title="Shop Owner">
+                          <Store className="w-4 h-4" />
+                        </div>
+                      ) : (
+                        <div className="w-7 h-7 rounded-lg bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                          {shopInitial}
+                        </div>
+                      )
                     )}
                     <div className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${
                       isCust 
                         ? 'bg-blue-600 text-white rounded-br-none'
-                        : msg.isError
-                          ? 'bg-red-50 border border-red-200 text-red-900 rounded-bl-none'
-                          : msg.isPendingFallback
-                            ? 'bg-amber-50 border border-amber-200 text-amber-900 rounded-bl-none'
-                            : 'bg-white border border-slate-200/80 text-slate-800 rounded-bl-none'
+                        : isOwner
+                          ? 'bg-indigo-50/70 border border-indigo-200/90 text-slate-900 rounded-bl-none'
+                          : msg.isError
+                            ? 'bg-red-50 border border-red-200 text-red-900 rounded-bl-none'
+                            : msg.isPendingFallback
+                              ? 'bg-amber-50 border border-amber-200 text-amber-900 rounded-bl-none'
+                              : 'bg-white border border-slate-200/80 text-slate-800 rounded-bl-none'
                     }`}>
-                      <p className="whitespace-pre-wrap leading-relaxed">{msg.text || "Thank you! The shop owner will reply to you soon by email."}</p>
+                      {isOwner && (
+                        <div className="flex items-center space-x-1.5 mb-1.5">
+                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100/90 px-2 py-0.5 rounded-md uppercase tracking-wider inline-flex items-center space-x-1">
+                            <Store className="w-3 h-3" />
+                            <span>Shop Owner</span>
+                          </span>
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap leading-relaxed">
+                        {msg.text || (msg.isStreaming ? "" : "Thank you! The shop owner will reply to you soon by email.")}
+                        {msg.isStreaming && (
+                          <span className="inline-block w-1.5 h-3.5 bg-blue-600 ml-1 translate-y-0.5 animate-pulse" />
+                        )}
+                      </p>
+
+                      {/* Customer Feedback for Shop Owner Replies */}
+                      {isOwner && (
+                        <div className="mt-2.5 pt-2 border-t border-indigo-100 flex flex-col space-y-1.5">
+                          <span className="text-[11px] text-slate-600 font-medium">Was this response helpful?</span>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={ownerFeedbackMap[msg.id]?.submitted || ownerFeedbackMap[msg.id]?.submitting}
+                              onClick={() => handleOwnerFeedback(msg.id, 'good')}
+                              className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border ${
+                                ownerFeedbackMap[msg.id]?.type === 'good'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-bold shadow-xs'
+                                  : ownerFeedbackMap[msg.id]?.submitted
+                                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-60 cursor-not-allowed'
+                                  : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                              }`}
+                            >
+                              <ThumbsUp className="w-3 h-3" />
+                              <span>👍 Good</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={ownerFeedbackMap[msg.id]?.submitted || ownerFeedbackMap[msg.id]?.submitting}
+                              onClick={() => handleOwnerFeedback(msg.id, 'bad')}
+                              className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border ${
+                                ownerFeedbackMap[msg.id]?.type === 'bad'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-300 font-bold shadow-xs'
+                                  : ownerFeedbackMap[msg.id]?.submitted
+                                  ? 'bg-slate-50 text-slate-400 border-slate-200 opacity-60 cursor-not-allowed'
+                                  : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                              }`}
+                            >
+                              <ThumbsDown className="w-3 h-3" />
+                              <span>👎 Bad</span>
+                            </button>
+
+                            {ownerFeedbackMap[msg.id]?.submitted && !ownerFeedbackMap[msg.id]?.error && (
+                              <span className="text-[11px] text-emerald-600 font-medium flex items-center space-x-1 animate-fade-in ml-1">
+                                <Check className="w-3 h-3" />
+                                <span>Thank you for your feedback!</span>
+                              </span>
+                            )}
+
+                            {ownerFeedbackMap[msg.id]?.error && (
+                              <span className="text-[11px] text-rose-600 font-medium ml-1">
+                                {ownerFeedbackMap[msg.id].error}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Retry Button on connection / processing errors */}
                       {msg.isError && msg.failedQuery && (
@@ -482,73 +674,6 @@ const PublicChatPage = () => {
                             <RotateCcw className="w-3 h-3" />
                             <span>Retry Question</span>
                           </button>
-                        </div>
-                      )}
-
-                      {/* Inline Rating Controls for Eligible AI Answers */}
-                      {!isCust && 
-                       !msg.isPendingFallback && 
-                       !msg.isError && 
-                       msg.sender === 'ai' && 
-                       msg.questionId && 
-                       msg.text && 
-                       msg.text.trim().length > 3 && 
-                       !msg.text.includes("The shop owner will reply") && (
-                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-col space-y-1.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleFeedback(msg.questionId, 'good')}
-                              className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border ${
-                                feedbackMap[msg.questionId]?.type === 'good'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 font-bold shadow-xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                            >
-                              <ThumbsUp className="w-3 h-3" />
-                              <span>Good Answer</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleFeedback(msg.questionId, 'bad')}
-                              className={`inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition border ${
-                                feedbackMap[msg.questionId]?.type === 'bad'
-                                  ? 'bg-rose-50 text-rose-700 border-rose-300 font-bold shadow-xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                              }`}
-                            >
-                              <ThumbsDown className="w-3 h-3" />
-                              <span>Bad Answer</span>
-                            </button>
-
-                            {feedbackMap[msg.questionId]?.submitted && (
-                              <span className="text-[11px] text-emerald-600 font-medium flex items-center space-x-1 animate-fade-in ml-1">
-                                <Check className="w-3 h-3" />
-                                <span>Thanks for your feedback!</span>
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Optional Comment Input for Bad Answer */}
-                          {feedbackMap[msg.questionId]?.type === 'bad' && feedbackMap[msg.questionId]?.showCommentBox && (
-                            <div className="mt-1 flex items-center space-x-1.5 bg-slate-50 p-1.5 rounded-lg border border-slate-200">
-                              <input
-                                type="text"
-                                placeholder="What was incorrect? (Optional)"
-                                value={feedbackMap[msg.questionId]?.comment || ''}
-                                onChange={(e) => handleCommentChange(msg.questionId, e.target.value)}
-                                className="flex-1 bg-white px-2 py-1 rounded text-[11px] border border-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleCommentSubmit(msg.questionId)}
-                                className="px-2.5 py-1 rounded bg-blue-600 text-white text-[10px] font-bold hover:bg-blue-700 transition"
-                              >
-                                Submit
-                              </button>
-                            </div>
-                          )}
                         </div>
                       )}
 

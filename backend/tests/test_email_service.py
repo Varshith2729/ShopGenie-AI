@@ -436,3 +436,101 @@ def test_scenario_12_successful_smtp_delivery(client, auth_headers, monkeypatch,
         assert "diana@themyscira.com" in sent_msg["To"]
         assert "Test Shop" in sent_msg["From"]
         assert "Your Question Has Been Answered" in sent_msg["Subject"]
+
+# ----------------------------------------------------------------------
+# 13. Failed email delivery must strictly record failure, never success.
+# ----------------------------------------------------------------------
+def test_scenario_13_strict_mock_delivery_failure_never_reports_success(client, auth_headers, monkeypatch, app):
+    """Verify that failed email delivery is strictly marked as failed and never reports success."""
+    monkeypatch.setitem(app.config, "EMAIL_PROVIDER", "smtp")
+    monkeypatch.setitem(app.config, "SMTP_SERVER", "smtp.invalid-domain-nonexistent.xyz")
+    monkeypatch.setitem(app.config, "SMTP_PORT", 587)
+    monkeypatch.setitem(app.config, "SMTP_USERNAME", "invalid@invalid.xyz")
+    monkeypatch.setitem(app.config, "SMTP_PASSWORD", "fakepassword")
+
+    sess = client.post("/api/public/shop/test-shop/session", json={
+        "first_name": "Oliver", "last_name": "Queen", "email": "oliver@star-city.com"
+    }).get_json()["data"]["session_token"]
+
+    chat = client.post("/api/public/shop/test-shop/chat", json={
+        "message": "Do you offer archery gear?"
+    }, headers={"X-Customer-Session": sess})
+    q_id = chat.get_json()["data"]["question_id"]
+
+    res = client.post(f"/api/questions/{q_id}/answer", json={
+        "answer": "Yes, custom composite recurve bows are available."
+    }, headers=auth_headers)
+
+    assert res.status_code == 200
+    data = res.get_json()["data"]
+    # Must strictly be failed - NEVER reported as sent
+    assert data["email_status"] == "failed"
+    assert data["email_error"] is not None
+    assert "could not be sent" in res.get_json()["message"]
+
+    # Verify audit log records failure
+    with app.app_context():
+        log = EmailNotificationLog.query.filter_by(customer_question_id=q_id).first()
+        assert log is not None
+        assert log.status == "failed"
+        assert log.error_message is not None
+
+# ----------------------------------------------------------------------
+# 14. Real SMTP integration test (Runs when RUN_REAL_EMAIL_TESTS=true)
+# ----------------------------------------------------------------------
+def test_scenario_14_real_smtp_integration_test(app):
+    """
+    Real SMTP delivery submission test against a live SMTP provider (e.g. Gmail SMTP).
+    This test connects to the live SMTP server, authenticates over TLS, submits the message,
+    and validates that the provider accepted the email for delivery.
+
+    Triggered only when RUN_REAL_EMAIL_TESTS=true in environment.
+    Note: SMTP acceptance confirms successful message submission to the mail transport agent;
+    it does not independently inspect customer inbox delivery.
+    """
+    import os
+    run_real = os.getenv("RUN_REAL_EMAIL_TESTS", "").strip().lower() in ("true", "1", "yes")
+    if not run_real:
+        pytest.skip(
+            "RUN_REAL_EMAIL_TESTS is not enabled. Skipping live SMTP provider test. "
+            "To execute this test with real credentials, set RUN_REAL_EMAIL_TESTS=true in .env "
+            "along with SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, and SMTP_PASSWORD."
+        )
+
+    # Validate required credentials are present
+    smtp_server = os.getenv("SMTP_SERVER", "").strip()
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    test_inbox = os.getenv("TEST_INBOX_EMAIL", "").strip() or smtp_username
+
+    if not smtp_server or not smtp_username or not smtp_password:
+        pytest.fail(
+            "RUN_REAL_EMAIL_TESTS=true but required SMTP credentials are missing. "
+            "Please configure SMTP_SERVER, SMTP_USERNAME, and SMTP_PASSWORD in .env."
+        )
+
+    with app.app_context():
+        # Inject live config into application context safely
+        app.config["EMAIL_PROVIDER"] = "smtp"
+        app.config["SMTP_SERVER"] = smtp_server
+        app.config["SMTP_PORT"] = int(os.getenv("SMTP_PORT", 587))
+        app.config["SMTP_USERNAME"] = smtp_username
+        app.config["SMTP_PASSWORD"] = smtp_password
+        app.config["SMTP_USE_TLS"] = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
+        app.config["SMTP_TIMEOUT"] = int(os.getenv("SMTP_TIMEOUT", 15))
+
+        # Real SMTP submission
+        result = EmailService.send_customer_answer_email(
+            customer_name="Mentor Evaluation Tester",
+            customer_email=test_inbox,
+            shop_name="ShopGenie Live Evaluation Store",
+            question="Is this a verified live SMTP test from ShopGenie AI?",
+            answer="Yes, this is an automated live integration test verifying real SMTP submission.",
+            question_id=9999
+        )
+
+        # Strict assertion on live provider submission
+        assert result["success"] is True, f"Real SMTP dispatch failed: {result.get('error')}"
+        assert result["status"] == "sent", f"Expected status 'sent', got '{result.get('status')}'"
+        assert result["error"] is None, f"Unexpected error in live dispatch: {result.get('error')}"
+        assert result["provider"] == "smtp"

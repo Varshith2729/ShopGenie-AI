@@ -47,7 +47,7 @@ const LoginPage = () => {
           <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
             <Bot className="w-6 h-6" />
           </div>
-          <span className="font-extrabold text-2xl text-slate-900 tracking-tight">Shop FAQ Bot</span>
+          <span className="font-extrabold text-2xl text-slate-900 tracking-tight">ShopGenie AI</span>
         </Link>
         <h2 className="mt-6 text-2xl sm:text-3xl font-extrabold text-slate-900">
           Owner Portal Sign In

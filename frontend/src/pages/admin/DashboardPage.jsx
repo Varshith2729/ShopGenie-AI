@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { dashboardApi } from '../../services/api';
+import { dashboardApi, feedbackApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { 
   BookOpen, 
@@ -25,15 +25,17 @@ const DashboardPage = () => {
   const [data, setData] = useState(null);
   const [recentQuestions, setRecentQuestions] = useState([]);
   const [recentActivities, setRecentActivities] = useState([]);
+  const [recentFeedback, setRecentFeedback] = useState([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    const fetchDashboard = async (silent = false) => {
       try {
-        const [statsRes, recentRes] = await Promise.all([
+        const [statsRes, recentRes, feedbackRes] = await Promise.all([
           dashboardApi.getStats(),
           dashboardApi.getRecentQuestions(),
+          feedbackApi.listOwnerReplies({ limit: 5 }),
         ]);
         if (statsRes.data?.success) {
           setData(statsRes.data.data);
@@ -42,13 +44,23 @@ const DashboardPage = () => {
           setRecentQuestions(recentRes.data.data.recent_questions || []);
           setRecentActivities(recentRes.data.data.recent_activities || []);
         }
+        if (feedbackRes.data?.success) {
+          setRecentFeedback(feedbackRes.data.data.items?.slice(0, 5) || []);
+        }
       } catch (err) {
         console.error("Failed to load dashboard data", err);
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
     };
-    fetchDashboard();
+    fetchDashboard(false);
+
+    // Auto-refresh every 6 seconds to reflect live metrics & questions
+    const interval = setInterval(() => {
+      fetchDashboard(true);
+    }, 6000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const publicUrl = data?.public_url || `${window.location.origin}/s/${shop?.slug || ''}`;
@@ -178,22 +190,153 @@ const DashboardPage = () => {
           <div className="text-xs font-semibold text-slate-500 mt-1">Answered Questions</div>
         </div>
 
-        {/* Card 5: Good AI Answers */}
+        {/* Card 5: Good Owner Replies */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center mb-3">
             <ThumbsUp className="w-5 h-5" />
           </div>
-          <div className="text-2xl font-black text-slate-900">{stats.good_answers || 0}</div>
-          <div className="text-xs font-semibold text-slate-500 mt-1">Good AI Answers</div>
+          <div className="text-2xl font-black text-slate-900">{stats.good_owner_replies || stats.total_good || 0}</div>
+          <div className="text-xs font-semibold text-slate-500 mt-1">Good Owner Replies</div>
         </div>
 
-        {/* Card 6: Bad AI Answers */}
+        {/* Card 6: Bad Owner Replies */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center mb-3">
             <ThumbsDown className="w-5 h-5" />
           </div>
-          <div className="text-2xl font-black text-slate-900">{stats.bad_answers || 0}</div>
-          <div className="text-xs font-semibold text-slate-500 mt-1">Bad AI Answers</div>
+          <div className="text-2xl font-black text-slate-900">{stats.bad_owner_replies || stats.total_bad || 0}</div>
+          <div className="text-xs font-semibold text-slate-500 mt-1">Bad Owner Replies</div>
+        </div>
+      </div>
+
+      {/* Dedicated Owner Reply Feedback Section */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
+              <Store className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-base font-bold text-slate-900">Owner Reply Feedback</h3>
+                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                  {stats.owner_helpfulness_percentage !== undefined ? `${stats.owner_helpfulness_percentage}%` : `${stats.helpfulness_percentage || 0}%`} Helpful
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Customer satisfaction ratings strictly on replies and follow-ups sent directly by the shop owner.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            to="/admin/rate-answers"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 text-xs font-bold transition shrink-0 self-start sm:self-auto"
+          >
+            <span>View All Customer Feedback</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {/* 3 Feedback Metrics Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-emerald-50/70 border border-emerald-100 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[11px] font-bold text-emerald-600 uppercase">👍 Total Good Feedback</div>
+              <div className="text-2xl font-black text-emerald-700 mt-1">{stats.good_owner_replies || stats.total_good || 0}</div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <ThumbsUp className="w-4 h-4" />
+            </div>
+          </div>
+
+          <div className="bg-rose-50/70 border border-rose-100 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[11px] font-bold text-rose-600 uppercase">👎 Total Bad Feedback</div>
+              <div className="text-2xl font-black text-rose-700 mt-1">{stats.bad_owner_replies || stats.total_bad || 0}</div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+              <ThumbsDown className="w-4 h-4" />
+            </div>
+          </div>
+
+          <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex items-center justify-between">
+            <div>
+              <div className="text-[11px] font-bold text-slate-500 uppercase">Total Rated Replies</div>
+              <div className="text-2xl font-black text-slate-800 mt-1">{stats.total_owner_replies_rated || stats.total_rated || 0}</div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center font-bold">
+              <CheckCircle className="w-4 h-4" />
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Feedback Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
+            <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th className="py-2.5 px-3">Customer</th>
+                <th className="py-2.5 px-3">Question</th>
+                <th className="py-2.5 px-3">Owner Reply</th>
+                <th className="py-2.5 px-3 text-center">Feedback</th>
+                <th className="py-2.5 px-3 text-right">Date & Time</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {recentFeedback.length === 0 ? (
+                <tr>
+                  <td colSpan="5" className="py-8 text-center text-slate-400">
+                    No customer feedback received on owner replies yet.
+                  </td>
+                </tr>
+              ) : (
+                recentFeedback.map((fb) => (
+                  <tr key={fb.id} className="hover:bg-slate-50/70 transition">
+                    <td className="py-3 px-3">
+                      <div className="font-semibold text-slate-900">{fb.customer_name || 'Anonymous'}</div>
+                      <div className="text-[10px] text-slate-400">{fb.customer_email || 'N/A'}</div>
+                    </td>
+                    <td className="py-3 px-3 max-w-[200px]">
+                      <p className="truncate text-slate-800 font-medium">{fb.question || '—'}</p>
+                    </td>
+                    <td className="py-3 px-3 max-w-[220px]">
+                      <p className="truncate text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-100">
+                        {fb.owner_reply || '—'}
+                      </p>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                        fb.feedback_type === 'good'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {fb.feedback_type === 'good' ? (
+                          <>
+                            <ThumbsUp className="w-3 h-3 text-emerald-600" />
+                            <span>Good</span>
+                          </>
+                        ) : (
+                          <>
+                            <ThumbsDown className="w-3 h-3 text-rose-600" />
+                            <span>Bad</span>
+                          </>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-500 whitespace-nowrap text-[11px]">
+                      {fb.created_at ? new Date(fb.created_at).toLocaleString([], {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      }) : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

@@ -240,23 +240,43 @@ class AnswerFeedback(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     shop_id = db.Column(db.Integer, db.ForeignKey("shops.id", ondelete="CASCADE"), nullable=False, index=True)
-    customer_question_id = db.Column(db.Integer, db.ForeignKey("customer_questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_question_id = db.Column(db.Integer, db.ForeignKey("customer_questions.id", ondelete="CASCADE"), nullable=True, index=True)
+    target_type = db.Column(db.String(20), nullable=False, default="ai_answer", index=True)  # 'ai_answer', 'owner_reply'
+    message_id = db.Column(db.Integer, db.ForeignKey("messages.id", ondelete="CASCADE"), nullable=True, index=True)
     feedback_type = db.Column(db.String(10), nullable=False)  # 'good', 'bad'
+    rating = db.Column(db.Integer, nullable=True)  # Deprecated legacy column, retained for DB safety
     reason = db.Column(db.Text, nullable=True)
     correct_answer = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=utcnow, nullable=False)
     
+    message = db.relationship("Message", backref=db.backref("feedbacks", lazy=True), lazy=True)
+
     def to_dict(self):
         q = self.question
         cust = q.customer if q else None
+        msg = self.message
+        if not cust and msg and msg.conversation:
+            cust = msg.conversation.customer
+
+        question_text = q.question if q else ""
+        if not question_text and msg and msg.conversation:
+            cq = CustomerQuestion.query.filter_by(conversation_id=msg.conversation_id).first()
+            if cq:
+                question_text = cq.question
+
+        owner_reply_text = msg.message_content if msg else (q.owner_answer if q else "")
+
         return {
             "id": self.id,
             "shop_id": self.shop_id,
             "customer_question_id": self.customer_question_id,
+            "target_type": self.target_type or "ai_answer",
+            "message_id": self.message_id,
             "customer_name": f"{cust.first_name} {cust.last_name}".strip() if cust else "Anonymous",
             "customer_email": cust.email if cust else "N/A",
-            "question": q.question if q else "",
+            "question": question_text,
             "ai_answer": q.ai_answer if q else "",
+            "owner_reply": owner_reply_text,
             "feedback_type": self.feedback_type,
             "reason": self.reason,
             "correct_answer": self.correct_answer,

@@ -15,8 +15,11 @@ def get_stats():
     pending_questions = CustomerQuestion.query.filter_by(shop_id=shop_id, status="pending").count()
     answered_questions = CustomerQuestion.query.filter_by(shop_id=shop_id, status="answered").count()
     
-    good_feedback = AnswerFeedback.query.filter_by(shop_id=shop_id, feedback_type="good").count()
-    bad_feedback = AnswerFeedback.query.filter_by(shop_id=shop_id, feedback_type="bad").count()
+    # Shop Owner Reply Feedback metrics (Exclusively Owner Reply Feedback)
+    total_good = AnswerFeedback.query.filter_by(shop_id=shop_id, target_type="owner_reply", feedback_type="good").count()
+    total_bad = AnswerFeedback.query.filter_by(shop_id=shop_id, target_type="owner_reply", feedback_type="bad").count()
+    total_rated = total_good + total_bad
+    helpfulness_percentage = round((total_good / total_rated) * 100, 1) if total_rated > 0 else 0.0
     
     frontend_url = current_app.config.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
     public_url = f"{frontend_url}/s/{g.current_shop.slug}"
@@ -27,8 +30,18 @@ def get_stats():
             "total_questions": total_questions,
             "pending_questions": pending_questions,
             "answered_questions": answered_questions,
-            "good_answers": good_feedback,
-            "bad_answers": bad_feedback
+            # Owner Reply Feedback metrics
+            "good_owner_replies": total_good,
+            "bad_owner_replies": total_bad,
+            "total_owner_replies_rated": total_rated,
+            "total_owner_feedback": total_rated,
+            "owner_helpfulness_percentage": helpfulness_percentage,
+            "total_good": total_good,
+            "total_bad": total_bad,
+            "total_rated": total_rated,
+            "helpfulness_percentage": helpfulness_percentage,
+            "good_answers": total_good,
+            "bad_answers": total_bad
         },
         "shop": g.current_shop.to_dict(),
         "public_url": public_url

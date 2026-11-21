@@ -19,57 +19,141 @@ STOP_WORDS = {
     "purchase", "purchased", "purchasing", "available", "availability", "stock"
 }
 
+# Common typos, abbreviations, and informal English normalization mapping
+TYPO_MAP = {
+    "shp": "shop",
+    "shopp": "shop",
+    "stoor": "store",
+    "stor": "store",
+    "opn": "open",
+    "opning": "opening",
+    "openning": "opening",
+    "oppening": "opening",
+    "reoppen": "reopen",
+    "reoppening": "reopen",
+    "re-open": "reopen",
+    "re-opening": "reopen",
+    "reopens": "reopen",
+    "reopening": "reopen",
+    "timming": "timing",
+    "timmings": "timings",
+    "tym": "time",
+    "tyms": "time",
+    "clse": "close",
+    "cls": "close",
+    "clsng": "closing",
+    "loaction": "location",
+    "locaton": "location",
+    "addres": "address",
+    "adress": "address",
+    "addr": "address",
+    "prce": "price",
+    "pric": "price",
+    "cst": "cost",
+    "damadged": "damaged",
+    "damagd": "damaged",
+    "damge": "damaged",
+    "damged": "damaged",
+    "defct": "defect",
+    "defctive": "defective",
+    "complnt": "complaint",
+    "complaint": "complaint",
+    "u": "you",
+    "ur": "your",
+    "r": "are",
+    "pls": "please",
+    "plz": "please",
+    "thx": "thanks",
+    "thanx": "thanks",
+    "tmrw": "tomorrow",
+    "tommorow": "tomorrow",
+    "tomorow": "tomorrow",
+    "tody": "today",
+    "sndy": "sunday",
+    "stdy": "saturday",
+    "phn": "phone",
+    "fone": "phone",
+    "mob": "mobile",
+    "mobil": "mobile",
+    "smrtphone": "smartphone"
+}
+
 # Semantic Intent Clusters
 INTENT_CLUSTERS = {
     "address": {
         "address", "location", "located", "where", "place", "directions",
-        "map", "landmark", "situated", "pincode", "zipcode", "city", "street", "road"
+        "map", "landmark", "situated", "pincode", "zipcode", "city", "street", "road",
+        "reach", "how to reach", "route", "find", "addr", "locaton", "loaction", "situated"
     },
     "timings": {
-        "timing", "timings", "time", "hours", "open", "opening", "opens",
+        "timing", "timings", "timmings", "time", "times", "hours", "open", "opening", "opens", "opened", "openings",
+        "reopen", "reopening", "reopens", "re-open", "opn", "opning", "oppening",
         "close", "closing", "closes", "closed", "schedule", "sunday", "saturday",
-        "weekend", "holiday", "working"
+        "weekend", "holiday", "working", "work hours", "when open", "visit", "visiting",
+        "arrive", "arriving", "operating", "operational"
     },
     "returns": {
-        "return", "returns", "returned", "exchange", "exchanged", "exchanging",
-        "refund", "refunds", "replacement", "warranty", "guarantee", "policy",
+        "return", "returns", "returned", "returning", "exchange", "exchanged", "exchanging",
+        "refund", "refunds", "replacement", "replace", "warranty", "guarantee", "policy",
         "claim"
     },
     "delivery": {
         "delivery", "deliver", "delivering", "delivers", "shipping", "ship",
-        "courier", "dispatch", "home delivery"
+        "courier", "dispatch", "home delivery", "parcel"
     },
     "payment": {
         "payment", "pay", "paying", "upi", "card", "cash", "credit", "debit",
-        "gpay", "phonepe", "emi", "installments"
+        "gpay", "phonepe", "emi", "installments", "cost", "price", "pricing", "rate", "rates", "charge"
     },
     "products": {
         "product", "products", "item", "items", "brand", "brands", "model",
-        "models", "stock", "available", "sell", "sells", "selling", "buy",
+        "models", "stock", "available", "availability", "sell", "sells", "selling", "buy",
         "buying", "purchase", "price", "cost", "rate", "catalog", "mobile",
         "phone", "phones", "smartphone", "smartphones", "cloth", "clothes",
         "clothing", "dress", "dresses", "saree", "sarees", "shirt", "shirts",
-        "pant", "pants", "apple", "samsung", "oneplus", "vivo", "oppo"
+        "pant", "pants", "apple", "samsung", "oneplus", "vivo", "oppo", "specs",
+        "specifications", "variant", "variants", "storage", "color", "colors", "laptop",
+        "accessories", "accessory"
+    },
+    "escalation": {
+        "damaged", "defect", "defective", "broken", "crack", "cracked", "faulty",
+        "complaint", "track", "tracking", "order status", "order #", "order id",
+        "my order", "payment failed", "charged twice", "double charged", "refund exception",
+        "dispute", "manager", "speak to human", "talk to human", "call me", "fraud", "scam", "cheated"
     }
 }
 
 # Synonyms for semantic domain matching
 SYNONYM_GROUPS = [
     {"mobile", "phone", "phones", "smartphone", "smartphones", "cellphone", "cellphones", "handset", "device", "devices"},
-    {"exchange", "exchanged", "exchanging", "return", "returns", "returned", "returning", "refund", "refunds", "replacement", "replace", "policy"},
-    {"time", "timing", "timings", "hours", "open", "opening", "opens", "close", "closing", "closes", "schedule"},
+    {"exchange", "exchanged", "exchanging", "return", "returns", "returned", "returning", "refund", "refunds", "replacement", "replace", "policy", "warranty"},
+    {"time", "timing", "timings", "timmings", "hours", "open", "opening", "opens", "opened", "reopen", "reopening", "reopens", "re-open", "opn", "close", "closing", "closes", "schedule", "visit", "visiting", "operating", "operational"},
     {"cloth", "clothes", "clothing", "dress", "dresses", "wear", "apparel", "garments", "fashion", "shirts", "shirt", "pant", "pants", "saree", "sarees", "ethnic"},
     {"deliver", "delivery", "shipping", "ship", "courier", "dispatch"},
-    {"cost", "price", "pricing", "rate", "rates", "charge", "charges", "fee", "fees"},
-    {"address", "location", "located", "place", "where", "landmark", "directions", "situated", "map"}
+    {"cost", "price", "pricing", "rate", "rates", "charge", "charges", "fee", "fees", "how much"},
+    {"address", "location", "located", "place", "where", "landmark", "directions", "situated", "map", "reach", "route"}
 ]
 
+def normalize_word(word: str) -> str:
+    """Normalize word typos and informal spellings."""
+    w = word.lower().strip()
+    return TYPO_MAP.get(w, w)
+
 def tokenize(text: str, remove_stopwords: bool = True) -> set:
-    """Normalize and tokenize text into lowercase word tokens."""
+    """Normalize and tokenize text into lowercase word tokens with typo correction."""
     if not text:
         return set()
     cleaned = re.sub(r"[^\w\s]", " ", text.lower())
-    tokens = {t for t in cleaned.split() if len(t) > 1}
+    tokens = set()
+    for t in cleaned.split():
+        if len(t) < 1:
+            continue
+        norm_t = normalize_word(t)
+        if len(norm_t) > 1:
+            tokens.add(norm_t)
+        elif norm_t in {"u", "r"}: # common single-letter abbreviations
+            tokens.add(norm_t)
+
     if remove_stopwords:
         tokens = {t for t in tokens if t not in STOP_WORDS}
     return tokens
@@ -97,11 +181,18 @@ def detect_query_intents(query: str) -> set:
             
     return intents
 
-def search_shop_knowledge(shop_id: int, query: str, min_score: float = 0.35, limit: int = 5) -> List[Dict[str, Any]]:
+def search_shop_knowledge(
+    shop_id: int,
+    query: str,
+    conversation_history: List[Dict[str, Any]] = None,
+    min_score: float = 0.25,
+    limit: int = 5
+) -> List[Dict[str, Any]]:
     """
     Search and rank knowledge entries ONLY for the given shop_id.
     Strict tenant isolation is enforced at query time.
-    Uses semantic intent detection, synonym expansion, and strict relevance ranking.
+    Uses semantic intent detection, synonym expansion, contextual follow-up expansion,
+    and strict relevance ranking.
     """
     if not shop_id or not query or not query.strip():
         return []
@@ -113,13 +204,35 @@ def search_shop_knowledge(shop_id: int, query: str, min_score: float = 0.35, lim
     # Substantive query tokens
     substantive_tokens = tokenize(query, remove_stopwords=True)
     all_query_tokens = tokenize(query, remove_stopwords=False)
-    effective_tokens = substantive_tokens if substantive_tokens else all_query_tokens
+    effective_tokens = set(substantive_tokens if substantive_tokens else all_query_tokens)
     if not effective_tokens:
         return []
 
-    expanded_query_tokens = expand_synonyms(effective_tokens)
-    query_intents = detect_query_intents(query)
+    # Contextual Follow-Up Expansion:
+    # If the customer asks a short or follow-up question (e.g. "What about tomorrow?", "And on weekends?", "And the price?")
+    # incorporate context tokens and intents from recent customer messages in conversation_history.
     q_lower = query.lower().strip()
+    follow_up_triggers = {"what about", "how about", "and", "also", "tomorrow", "today", "yesterday", "sunday", "saturday", "weekend", "price", "cost", "available", "color", "variant", "specs"}
+    is_follow_up = len(effective_tokens) <= 3 or any(trig in q_lower for trig in follow_up_triggers)
+
+    context_intents = set()
+    if is_follow_up and conversation_history:
+        # Find the most recent customer message
+        for prev_msg in reversed(conversation_history):
+            if prev_msg.get("sender_type") == "customer":
+                prev_text = prev_msg.get("message_content", "")
+                if prev_text and prev_text.strip().lower() != q_lower:
+                    prev_tokens = tokenize(prev_text, remove_stopwords=True)
+                    prev_intents = detect_query_intents(prev_text)
+                    context_intents.update(prev_intents)
+                    # Blend relevant intent tokens into effective tokens
+                    for pt in prev_tokens:
+                        if pt not in STOP_WORDS:
+                            effective_tokens.add(pt)
+                    break
+
+    expanded_query_tokens = expand_synonyms(effective_tokens)
+    query_intents = detect_query_intents(query).union(context_intents)
 
     scored_entries = []
 
@@ -193,6 +306,18 @@ def search_shop_knowledge(shop_id: int, query: str, min_score: float = 0.35, lim
                 normalized_score += 0.3
             elif token in c_lower:
                 normalized_score += 0.15
+
+        # Verified owner knowledge boost:
+        # Owner-approved answers and corrections represent verified ground truth
+        source_type = getattr(entry, "source_type", "manual")
+        if source_type == "feedback_correction":
+            normalized_score += 0.8
+        elif source_type == "pending_answered":
+            normalized_score += 0.6
+
+        # Direct question matching bonus
+        if f"question: {cleaned_q}" in c_lower or f"question: {q_lower}" in c_lower:
+            normalized_score += 2.0
 
         if normalized_score >= min_score:
             scored_entries.append({
